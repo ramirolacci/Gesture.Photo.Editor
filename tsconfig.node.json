@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "composite": true,
+        "skipLibCheck": true,
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "module": "ESNext",
+        "target": "ES2022"
+    },
+    "include": [
+        "vite.config.ts"
+    ]
+}
