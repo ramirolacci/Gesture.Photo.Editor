@@ -1,6 +1,5 @@
-import { useRef, useEffect, useCallback } from 'react';
-import { fabric } from 'fabric';
-import { EditorAction } from '../types/hand';
+import { useRef, useEffect, useCallback, useState } from 'react';
+import { EditorAction, Landmark } from '../types/hand';
 
 interface UseCanvasManipulationOptions {
     canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -9,213 +8,172 @@ interface UseCanvasManipulationOptions {
 
 export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const { canvasRef, onActionCompleted } = options;
-    const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
-    const currentToolRef = useRef<string>('select');
+    const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
     const isDrawingRef = useRef(false);
-    const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+    const lastHandPosRef = useRef<{ x: number; y: number } | null>(null);
+    
+    const [currentTool, setCurrentTool] = useState<EditorAction>('NONE');
+    const currentToolRef = useRef<EditorAction>('NONE');
 
-    // Inicializar Fabric.js canvas
+    // Helper to configure stroke properties
+    const configureContext = (ctx: CanvasRenderingContext2D) => {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+    };
+
+    // Sync state and ref for the tool
+    const selectTool = useCallback((tool: EditorAction) => {
+        setCurrentTool(tool);
+        currentToolRef.current = tool;
+        if (onActionCompleted) {
+            onActionCompleted(tool);
+        }
+    }, [onActionCompleted]);
+
+    // Initial configuration of canvas
     useEffect(() => {
         if (!canvasRef.current) return;
 
-        const canvas = new fabric.Canvas(canvasRef.current, {
-            isDrawingMode: false,
-            backgroundColor: '#ffffff',
-        });
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
-        fabricCanvasRef.current = canvas;
+        ctxRef.current = ctx;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        configureContext(ctx);
 
-        // Configurar herramientas
-        setupBrush(canvas);
+        const startDrawing = (e: MouseEvent) => {
+            isDrawingRef.current = true;
+            draw(e);
+        };
 
-        // Event listeners
-        canvas.on('mouse:down', (opt: fabric.IEvent) => {
-            if (opt.pointer) {
-                lastPointerRef.current = { x: opt.pointer.x, y: opt.pointer.y };
+        const draw = (e: MouseEvent) => {
+            if (!isDrawingRef.current || !ctxRef.current || !canvasRef.current) return;
+            
+            const activeTool = currentToolRef.current;
+            if (activeTool !== 'SELECT_BRUSH' && activeTool !== 'SELECT_ERASER') return;
+
+            const rect = canvas.getBoundingClientRect();
+            // Compensate for CSS scaling of the canvas
+            const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            const context = ctxRef.current;
+            
+            if (activeTool === 'SELECT_BRUSH') {
+                context.strokeStyle = '#000000';
+                context.lineWidth = 3;
+            } else if (activeTool === 'SELECT_ERASER') {
+                context.strokeStyle = '#ffffff';
+                context.lineWidth = 20;
             }
 
-            if (currentToolRef.current === 'brush') {
-                isDrawingRef.current = true;
-            }
-        });
+            context.lineTo(x, y);
+            context.stroke();
+            context.beginPath();
+            context.moveTo(x, y);
+        };
 
-        canvas.on('mouse:move', (opt: fabric.IEvent) => {
-            if (!opt.pointer || !lastPointerRef.current) return;
-
-            if (currentToolRef.current === 'brush' && isDrawingRef.current) {
-                // Dibujar línea
-                const points = [
-                    lastPointerRef.current.x,
-                    lastPointerRef.current.y,
-                    opt.pointer.x,
-                    opt.pointer.y,
-                ];
-                const line = new fabric.Line(points, {
-                    strokeWidth: 3,
-                    fill: '#000000',
-                    stroke: '#000000',
-                    originX: 'center',
-                    originY: 'center',
-                });
-                canvas.add(line);
-            }
-
-            lastPointerRef.current = { x: opt.pointer.x, y: opt.pointer.y };
-        });
-
-        canvas.on('mouse:up', () => {
+        const stopDrawing = () => {
             isDrawingRef.current = false;
-        });
+            if (ctxRef.current) {
+                ctxRef.current.beginPath();
+            }
+        };
+
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
 
         return () => {
-            canvas.dispose();
+            canvas.removeEventListener('mousedown', startDrawing);
+            canvas.removeEventListener('mousemove', draw);
+            canvas.removeEventListener('mouseup', stopDrawing);
+            canvas.removeEventListener('mouseout', stopDrawing);
         };
     }, [canvasRef]);
 
-    // Configurar pincel
-    const setupBrush = (canvas: fabric.Canvas) => {
-        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.color = '#000000';
-        canvas.freeDrawingBrush.width = 3;
-    };
+    // Programmatic drawing from hand landmark coordinates (MediaPipe)
+    const drawFromLandmark = useCallback((landmark: Landmark | null, tool: EditorAction) => {
+        if (!ctxRef.current || !canvasRef.current) return;
+        
+        const canvas = canvasRef.current;
+        const ctx = ctxRef.current;
 
-    // ... resto del código lo dejamos igual por ahora
-    // (te lo completo en el siguiente mensaje si este fix funciona)
-
-    const selectTool = useCallback((tool: string) => {
-        currentToolRef.current = tool;
-
-        if (!fabricCanvasRef.current) return;
-
-        const canvas = fabricCanvasRef.current;
-
-        if (tool === 'brush') {
-            canvas.isDrawingMode = true;
-        } else if (tool === 'eraser') {
-            canvas.isDrawingMode = true;
-            const eraserBrush = new fabric.PencilBrush(canvas);
-            eraserBrush.color = '#ffffff';
-            eraserBrush.width = 15;
-            canvas.freeDrawingBrush = eraserBrush;
-        } else if (tool === 'select' || tool === 'move') {
-            canvas.isDrawingMode = false;
+        if (!landmark || (tool !== 'SELECT_BRUSH' && tool !== 'SELECT_ERASER')) {
+            // Stop drawing, clear path history
+            lastHandPosRef.current = null;
+            ctx.beginPath();
+            return;
         }
-    }, []);
 
-    const executeAction = useCallback(
-        (action: EditorAction) => {
-            if (!fabricCanvasRef.current) return;
+        const x = landmark.x * canvas.width;
+        const y = landmark.y * canvas.height;
 
-            switch (action) {
-                case 'SELECT_BRUSH':
-                    selectTool('brush');
-                    break;
-                case 'SELECT_ERASER':
-                    selectTool('eraser');
-                    break;
-                case 'SELECT_MOVE':
-                    selectTool('move');
-                    break;
-                case 'PAN_CANVAS':
-                    selectTool('pan');
-                    fabricCanvasRef.current.selection = false;
-                    break;
-                case 'SELECT_ZOOM':
-                    selectTool('zoom');
-                    break;
-                case 'APPLY_FILTER':
-                    applyFilter('blur');
-                    break;
-                case 'UNDO':
-                    undo();
-                    break;
-                case 'REDO':
-                    redo();
-                    break;
-            }
-
-            if (onActionCompleted) {
-                onActionCompleted(action);
-            }
-        },
-        [selectTool, onActionCompleted]
-    );
-
-    const applyFilter = useCallback((filterType: string) => {
-        if (!fabricCanvasRef.current) return;
-        console.log('Filtro no implementado aún:', filterType);
-    }, []);
-
-    const undo = useCallback(() => {
-        if (!fabricCanvasRef.current) return;
-
-        const canvas = fabricCanvasRef.current;
-        const lastObject = canvas.item(canvas.size() - 1) as any;
-        if (lastObject) {
-            canvas.remove(lastObject);
+        if (tool === 'SELECT_BRUSH') {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 3;
+        } else if (tool === 'SELECT_ERASER') {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 20;
         }
+
+        if (!lastHandPosRef.current) {
+            // First point of the path
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        } else {
+            // Draw segment from previous coordinate
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        lastHandPosRef.current = { x, y };
     }, []);
 
-    const redo = useCallback(() => {
-        console.log('Redo no implementado en esta versión');
-    }, []);
-
+    // Load an image onto the canvas
     const loadImage = useCallback((imageUrl: string) => {
-        if (!fabricCanvasRef.current) return;
+        if (!canvasRef.current || !ctxRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = ctxRef.current;
 
-        fabric.Image.fromURL(imageUrl, (img: fabric.Image) => {
-            if (!fabricCanvasRef.current) return;
-
-            const canvas = fabricCanvasRef.current;
-
-            const canvasWidth = canvas.width || 800;
-            const canvasHeight = canvas.height || 600;
-
-            const scale = Math.min(
-                canvasWidth / (img.width || 1),
-                canvasHeight / (img.height || 1)
-            );
-
-            img.set({
-                scaleX: scale,
-                scaleY: scale,
-                originX: 'center',
-                originY: 'center',
-            });
-
-            canvas.add(img);
-            canvas.centerObject(img);
-            canvas.setActiveObject(img);
-        });
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            configureContext(ctx);
+        };
+        img.src = imageUrl;
     }, []);
 
-    const exportImage = useCallback((format: 'png' | 'jpeg' = 'png'): string => {
-        if (!fabricCanvasRef.current) return '';
-
-        const canvas = fabricCanvasRef.current;
-        return canvas.toDataURL({
-            format,
-            quality: 1,
-        });
+    // Export canvas as PNG base64
+    const exportImage = useCallback(() => {
+        if (!canvasRef.current) return '';
+        return canvasRef.current.toDataURL('image/png');
     }, []);
 
+    // Clear canvas to white
     const clearCanvas = useCallback(() => {
-        if (!fabricCanvasRef.current) return;
+        if (!canvasRef.current || !ctxRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = ctxRef.current;
 
-        const canvas = fabricCanvasRef.current;
-        canvas.clear();
-        canvas.backgroundColor = '#ffffff';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        configureContext(ctx);
     }, []);
 
     return {
-        fabricCanvasRef,
-        executeAction,
+        currentTool,
         selectTool,
+        drawFromLandmark,
         loadImage,
         exportImage,
         clearCanvas,
-        applyFilter,
-        undo,
-        redo,
     };
 }
