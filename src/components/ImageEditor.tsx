@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
 
@@ -21,18 +21,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
     const {
         currentTool,
         selectTool,
-        drawFromLandmark,
+        pointerPos,
         loadImage,
         exportImage,
         clearCanvas,
     } = useCanvasManipulation({
         canvasRef,
         onActionCompleted,
+        hands,
+        gestures,
+        isGesturePaused,
     });
 
     // Synchronize parent's currentAction changes with the hook
@@ -41,44 +43,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             selectTool(currentAction);
         }
     }, [currentAction, currentTool, selectTool]);
-
-    // Handle programmatic drawing & cursor tracking from MediaPipe hand landmarks in real-time
-    useEffect(() => {
-        if (isGesturePaused || hands.length === 0 || gestures.length === 0) {
-            drawFromLandmark(null, 'NONE');
-            setCursorPos(null);
-            return;
-        }
-
-        // Get the active tracking hand (first hand detected)
-        const hand = hands[0];
-        const gesture = gestures.find((g) => g.hand === hand.handedness) || gestures[0];
-
-        // Track index finger tip (landmark index 8)
-        const indexTip = hand.landmarks[8];
-        if (!indexTip) {
-            drawFromLandmark(null, 'NONE');
-            setCursorPos(null);
-            return;
-        }
-
-        const canvas = canvasRef.current;
-        if (canvas) {
-            // Map coordinates and update cursor position state
-            const x = indexTip.x * canvas.width;
-            const y = indexTip.y * canvas.height;
-            setCursorPos({ x, y });
-        }
-
-        // Draw programmatically based on active gesture
-        if (gesture.type === 'PINCH') {
-            drawFromLandmark(indexTip, 'SELECT_BRUSH');
-        } else if (gesture.type === 'PEACE') {
-            drawFromLandmark(indexTip, 'SELECT_ERASER');
-        } else {
-            drawFromLandmark(null, 'NONE');
-        }
-    }, [hands, gestures, isGesturePaused, drawFromLandmark]);
 
     // Load file image
     const handleLoadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,7 +144,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 />
 
                 {/* Hand Gesture Cursor Overlay */}
-                {cursorPos && !isGesturePaused && (
+                {pointerPos && !isGesturePaused && (
                     <div
                         className={`absolute pointer-events-none rounded-full border-2 transition-all duration-75 shadow-lg flex items-center justify-center ${
                             currentTool === 'SELECT_ERASER'
@@ -188,8 +152,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                 : 'border-blue-500 bg-blue-200/40'
                         }`}
                         style={{
-                            left: `${(cursorPos.x / canvasWidth) * 100}%`,
-                            top: `${(cursorPos.y / canvasHeight) * 100}%`,
+                            left: `${(pointerPos.x / canvasWidth) * 100}%`,
+                            top: `${(pointerPos.y / canvasHeight) * 100}%`,
                             width: currentTool === 'SELECT_ERASER' ? '30px' : '16px',
                             height: currentTool === 'SELECT_ERASER' ? '30px' : '16px',
                             transform: 'translate(-50%, -50%)',

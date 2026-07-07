@@ -1,19 +1,35 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { EditorAction, Landmark } from '../types/hand';
+import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 
 interface UseCanvasManipulationOptions {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     onActionCompleted?: (action: EditorAction) => void;
+    hands?: HandLandmarks[];
+    gestures?: RecognizedGesture[];
+    isGesturePaused?: boolean;
 }
 
 export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
-    const { canvasRef, onActionCompleted } = options;
+    const { canvasRef, onActionCompleted, hands = [], gestures = [], isGesturePaused = false } = options;
     const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
     const isDrawingRef = useRef(false);
-    const lastHandPosRef = useRef<{ x: number; y: number } | null>(null);
     
     const [currentTool, setCurrentTool] = useState<EditorAction>('NONE');
     const currentToolRef = useRef<EditorAction>('NONE');
+
+    // Pointer cursor position states & refs
+    const [pointerPos, setPointerPos] = useState<{ x: number; y: number } | null>(null);
+    const targetPosRef = useRef<{ x: number; y: number } | null>(null);
+    const smoothedPosRef = useRef<{ x: number; y: number } | null>(null);
+    
+    // Programmatic draw path tracing
+    const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
+    
+    // Gesture active flags for the RAF loop
+    const isPinchingRef = useRef(false);
+    const isEraserRef = useRef(false);
+    
+    const animationFrameIdRef = useRef<number | null>(null);
 
     // Helper to configure stroke properties
     const configureContext = (ctx: CanvasRenderingContext2D) => {
@@ -30,7 +46,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         }
     }, [onActionCompleted]);
 
-    // Initial configuration of canvas
+    // Handle initial mouse listeners
     useEffect(() => {
         if (!canvasRef.current) return;
 
@@ -95,45 +111,115 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         };
     }, [canvasRef]);
 
-    // Programmatic drawing from hand landmark coordinates (MediaPipe)
-    const drawFromLandmark = useCallback((landmark: Landmark | null, tool: EditorAction) => {
-        if (!ctxRef.current || !canvasRef.current) return;
-        
-        const canvas = canvasRef.current;
-        const ctx = ctxRef.current;
-
-        if (!landmark || (tool !== 'SELECT_BRUSH' && tool !== 'SELECT_ERASER')) {
-            // Stop drawing, clear path history
-            lastHandPosRef.current = null;
-            ctx.beginPath();
+    // Update target coordinates and gesture state refs on hands update
+    useEffect(() => {
+        if (isGesturePaused || hands.length === 0 || gestures.length === 0) {
+            targetPosRef.current = null;
+            isPinchingRef.current = false;
+            isEraserRef.current = false;
             return;
         }
 
-        const x = landmark.x * canvas.width;
-        const y = landmark.y * canvas.height;
+        const hand = hands[0];
+        const gesture = gestures.find((g) => g.hand === hand.handedness) || gestures[0];
 
-        if (tool === 'SELECT_BRUSH') {
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 3;
-        } else if (tool === 'SELECT_ERASER') {
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 20;
+        // Track index finger tip (landmark index 8)
+        const indexTip = hand.landmarks[8];
+        if (!indexTip) {
+            targetPosRef.current = null;
+            isPinchingRef.current = false;
+            isEraserRef.current = false;
+            return;
         }
 
-        if (!lastHandPosRef.current) {
-            // First point of the path
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        } else {
-            // Draw segment from previous coordinate
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
+        const canvas = canvasRef.current;
+        if (canvas) {
+            // Mirror X coordinate because camera feed is visual selfie view
+            targetPosRef.current = {
+                x: (1 - indexTip.x) * canvas.width,
+                y: indexTip.y * canvas.height,
+            };
         }
 
-        lastHandPosRef.current = { x, y };
-    }, []);
+        // Set action flags for drawing loop
+        isPinchingRef.current = gesture.type === 'PINCH';
+        isEraserRef.current = gesture.type === 'PEACE';
+    }, [hands, gestures, isGesturePaused, canvasRef]);
+
+    // requestAnimationFrame drawing loop with LERP smoothing
+    useEffect(() => {
+        const drawLoop = () => {
+            if (!canvasRef.current || !ctxRef.current) {
+                animationFrameIdRef.current = requestAnimationFrame(drawLoop);
+                return;
+            }
+
+            const ctx = ctxRef.current;
+            const target = targetPosRef.current;
+
+            if (target) {
+                // Initialize smoothed coordinates to target if first frame
+                if (!smoothedPosRef.current) {
+                    smoothedPosRef.current = { ...target };
+                } else {
+                    // Linear interpolation (lerp) for smooth movement (15% lerp factor)
+                    const lerpFactor = 0.15;
+                    smoothedPosRef.current = {
+                        x: smoothedPosRef.current.x * (1 - lerpFactor) + target.x * lerpFactor,
+                        y: smoothedPosRef.current.y * (1 - lerpFactor) + target.y * lerpFactor,
+                    };
+                }
+
+                // Update state for cursor positioning overlay
+                setPointerPos({ ...smoothedPosRef.current });
+
+                // Draw programmatically if in PINCH or PEACE modes
+                if (isPinchingRef.current || isEraserRef.current) {
+                    if (isPinchingRef.current) {
+                        ctx.strokeStyle = '#000000';
+                        ctx.lineWidth = 3;
+                    } else {
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 20;
+                    }
+
+                    if (!lastDrawPosRef.current) {
+                        // Start of the stroke path
+                        ctx.beginPath();
+                        ctx.moveTo(smoothedPosRef.current.x, smoothedPosRef.current.y);
+                    } else {
+                        // Draw segment from previous smoothed point
+                        ctx.lineTo(smoothedPosRef.current.x, smoothedPosRef.current.y);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(smoothedPosRef.current.x, smoothedPosRef.current.y);
+                    }
+
+                    lastDrawPosRef.current = { ...smoothedPosRef.current };
+                } else {
+                    // Reset draw path history if not pinching/erasing
+                    lastDrawPosRef.current = null;
+                    ctx.beginPath();
+                }
+            } else {
+                // Reset tracking states if hands are lost or paused
+                smoothedPosRef.current = null;
+                lastDrawPosRef.current = null;
+                setPointerPos(null);
+                ctx.beginPath();
+            }
+
+            animationFrameIdRef.current = requestAnimationFrame(drawLoop);
+        };
+
+        animationFrameIdRef.current = requestAnimationFrame(drawLoop);
+
+        return () => {
+            if (animationFrameIdRef.current) {
+                cancelAnimationFrame(animationFrameIdRef.current);
+            }
+        };
+    }, [canvasRef]);
 
     // Load an image onto the canvas
     const loadImage = useCallback((imageUrl: string) => {
@@ -171,7 +257,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     return {
         currentTool,
         selectTool,
-        drawFromLandmark,
+        pointerPos,
         loadImage,
         exportImage,
         clearCanvas,
