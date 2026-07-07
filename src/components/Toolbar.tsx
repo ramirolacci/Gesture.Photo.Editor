@@ -37,6 +37,21 @@ const ACTION_INFO: Record<EditorAction, { icon: string; label: string; descripti
         label: 'Filtro',
         description: 'Aplicá efectos a la imagen',
     },
+    DRAW_RECT: {
+        icon: '⬜',
+        label: 'Rectángulo',
+        description: 'Dibujá un rectángulo',
+    },
+    DRAW_CIRCLE: {
+        icon: '⭕',
+        label: 'Círculo / Elipse',
+        description: 'Dibujá un círculo o elipse',
+    },
+    DRAW_LINE: {
+        icon: '📏',
+        label: 'Línea',
+        description: 'Dibujá una línea recta',
+    },
     UNDO: {
         icon: '↩️',
         label: 'Deshacer',

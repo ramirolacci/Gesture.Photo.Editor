@@ -35,6 +35,9 @@ export type EditorAction =
     | 'SELECT_ZOOM'
     | 'PAN_CANVAS'
     | 'APPLY_FILTER'
+    | 'DRAW_RECT'
+    | 'DRAW_CIRCLE'
+    | 'DRAW_LINE'
     | 'UNDO'
     | 'REDO'
     | 'NONE';
