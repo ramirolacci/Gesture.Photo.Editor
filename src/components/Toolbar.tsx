@@ -93,27 +93,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center gap-1">
                         <span>👌</span>
-                        <span>Pinza → Pincel</span>
+                        <span>Pinza → Pincel (Dibujo)</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <span>👆</span>
-                        <span>Señalar → Mover</span>
+                        <span>Señalar → Mover objeto</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <span>✋</span>
-                        <span>Abierta → Desplazar</span>
+                        <span>Abierta → Pausar gestos</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <span>✌️</span>
                         <span>Paz → Borrador</span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <span>✊</span>
-                        <span>Puño → Zoom</span>
+                        <span>👍</span>
+                        <span>Thumbs Up → Activar/Desactivar capa</span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <span>👍</span>
-                        <span>Pulgar arriba → Filtro</span>
+                        <span>↕️</span>
+                        <span>Swipe Vertical → Subir/Bajar capa</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <span>🙌</span>
+                        <span>Doble Pinza → Opacidad (0-100%)</span>
                     </div>
                 </div>
             </div>

@@ -185,7 +185,7 @@ export const GESTURE_TO_ACTION: Record<GestureType, string> = {
     POINT: 'SELECT_MOVE',
     OPEN_PALM: 'PAN_CANVAS',
     FIST: 'SELECT_ZOOM',
-    THUMBS_UP: 'APPLY_FILTER',
+    THUMBS_UP: 'NONE',
     PEACE: 'SELECT_ERASER',
     NONE: 'NONE',
 };

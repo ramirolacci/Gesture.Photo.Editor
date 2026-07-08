@@ -33,3 +33,16 @@ code {
 .animate-pulse-glow {
     animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Responsive Fabric.js canvas container */
+.canvas-container {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100%;
+}
+
+.canvas-container canvas {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100%;
+}
