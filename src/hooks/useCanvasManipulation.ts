@@ -5,6 +5,8 @@ import { playSelectSound, playSuccessSound, playToggleSound } from '../utils/aud
 import { useProjectHistory } from './useProjectHistory';
 import { serializeProject, deserializeProject, validateProjectJSON } from '../utils/projectSerializer';
 import { exportCanvas, ExportOptions } from '../utils/canvasExporter';
+import { applyPipelineToImage } from '../utils/filterEngine';
+import { FilterState } from '../types/filterTypes';
 
 const createStarPoints = (centerX: number, centerY: number, points: number, innerRadius: number, outerRadius: number) => {
     const results = [];
@@ -1324,6 +1326,58 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         }
     }, [withHistory, showToast]);
 
+    // ─── Advanced filter pipeline ──────────────────────────────────────────────
+
+    const applyFilterPipeline = useCallback(async (
+        pipeline: FilterState[],
+        imageObj?: fabric.Image
+    ) => {
+        const canvas = fabricCanvasRef.current;
+        if (!canvas) return;
+
+        const target = imageObj ?? (canvas.getActiveObject() as fabric.Image | null);
+        if (!target) {
+            showToast?.('⚠️ Seleccioná una capa de imagen para aplicar filtros', 'warning');
+            return;
+        }
+        if ((target as any).layerType !== 'image') {
+            showToast?.('⚠️ Los filtros solo se aplican a capas de imagen', 'warning');
+            return;
+        }
+
+        await withHistory(`Filtros aplicados (${pipeline.length})`, () => {
+            applyPipelineToImage(target, pipeline);
+            canvas.requestRenderAll();
+            playSuccessSound();
+            showToast?.(`✨ ${pipeline.length} filtro${pipeline.length !== 1 ? 's' : ''} aplicado${pipeline.length !== 1 ? 's' : ''}`, 'success');
+        });
+    }, [withHistory, showToast]);
+
+    const clearFilters = useCallback(async (imageObj?: fabric.Image) => {
+        const canvas = fabricCanvasRef.current;
+        if (!canvas) return;
+
+        const target = imageObj ?? (canvas.getActiveObject() as fabric.Image | null);
+        if (!target || (target as any).layerType !== 'image') return;
+
+        await withHistory('Filtros eliminados', () => {
+            target.filters = [];
+            target.applyFilters();
+            canvas.requestRenderAll();
+            showToast?.('🗑️ Filtros eliminados', 'info');
+        });
+    }, [withHistory, showToast]);
+
+    // Preview without history (for real-time slider feedback)
+    const previewFilterPipeline = useCallback((pipeline: FilterState[], imageObj?: fabric.Image) => {
+        const canvas = fabricCanvasRef.current;
+        if (!canvas) return;
+        const target = imageObj ?? (canvas.getActiveObject() as fabric.Image | null);
+        if (!target || (target as any).layerType !== 'image') return;
+        applyPipelineToImage(target, pipeline);
+        canvas.requestRenderAll();
+    }, []);
+
     // ─── Stack operations ─────────────────────────────────────────────────────
 
     const toggleLayerVisibility = useCallback(async (id: string) => {
@@ -1579,6 +1633,9 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         // Text/Shape Styles API
         setTextStyle, setShapeStyle,
         activeObjectProperties,
+
+        // Advanced Filter Pipeline
+        applyFilterPipeline, previewFilterPipeline, clearFilters,
 
         // Layers API
         layers,

@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation, FilterType } from '../hooks/useCanvasManipulation';
 import { playToggleSound } from '../utils/audioFeedback';
+import { FilterPanel } from './FilterPanel';
+import { FilterState } from '../types/filterTypes';
 
 interface ImageEditorProps {
     onActionCompleted?: (action: EditorAction) => void;
@@ -138,6 +140,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const [jpgQuality, setJpgQuality] = useState(0.92);
     const [exportScale, setExportScale] = useState(2);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    // Gestural intensity for filter panel (two-hand spread 0–1)
+    const [filterGestureIntensity, setFilterGestureIntensity] = useState<number | null>(null);
+    void setFilterGestureIntensity;
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -189,6 +195,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         // Text/Shape Styles API
         setTextStyle, setShapeStyle,
         activeObjectProperties,
+
+        // Advanced Filter Pipeline
+        applyFilterPipeline, previewFilterPipeline, clearFilters,
 
         // Layers API
         layers,
@@ -404,14 +413,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 )}
             </div>
 
-            {/* ── Row 3: Filters (Apply to Selected Image Layer) ────────── */}
+            {/* ── Row 3: Filters (quick legacy + advanced panel btn) ────── */}
             <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl flex-wrap">
-                <span className="text-xs text-gray-500 font-medium mr-1 shrink-0">✨ Filtros (Capa Imagen):</span>
+                <span className="text-xs text-gray-500 font-medium mr-1 shrink-0">✨ Filtros rápidos: </span>
                 {FILTERS.map((f) => (
                     <ToolButton key={f.id} variant="filter" active={false} onClick={() => applyFilter(f.id)} title={f.label}>
                         {f.icon} <span className="text-xs ml-0.5">{f.label}</span>
                     </ToolButton>
                 ))}
+                <div className="ml-auto flex items-center gap-1.5">
+                    <button
+                        onClick={() => setIsFilterPanelOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg transition-all border border-indigo-500"
+                        title="Abrir panel de filtros avanzados"
+                    >
+                        <span className="text-sm">✨</span>
+                        Filtros Avanzados
+                    </button>
+                </div>
             </div>
 
             {/* ── Export Panel (collapsible) ───────────────────────────── */}
@@ -1173,6 +1192,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </div>
                 ))}
             </div>
+
+            {/* ── Advanced Filter Panel ────────────────────────────────── */}
+            <FilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                onApply={(pipeline: FilterState[]) => {
+                    applyFilterPipeline(pipeline);
+                    showToast('✨ Filtros aplicados a la capa', 'success');
+                }}
+                onPreview={(pipeline: FilterState[]) => previewFilterPipeline(pipeline)}
+                onCancel={() => {
+                    clearFilters();
+                    setIsFilterPanelOpen(false);
+                }}
+                gestureIntensity={filterGestureIntensity}
+            />
 
         </div>
     );
