@@ -79,7 +79,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className={`bg-white border-2 border-gray-200 rounded-lg p-4 ${className}`}>
             <h3 className="font-semibold text-gray-800 mb-3">Herramienta activa</h3>
 
-            <div className="flex items-center gap-3">
+            <div key={currentAction} className="flex items-center gap-3 animate-pulse-pop">
                 <div className="text-4xl">{info.icon}</div>
                 <div>
                     <p className="font-medium text-gray-900">{info.label}</p>

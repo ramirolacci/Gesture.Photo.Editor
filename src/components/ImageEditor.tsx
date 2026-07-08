@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation, FilterType } from '../hooks/useCanvasManipulation';
+import { playToggleSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
     onActionCompleted?: (action: EditorAction) => void;
@@ -9,6 +10,7 @@ interface ImageEditorProps {
     currentAction?: EditorAction;
     gestures?: RecognizedGesture[];
     isGesturePaused?: boolean;
+    onToggleGesturePause?: () => void;
 }
 
 // ─── Tool groups ───────────────────────────────────────────────────────────────
@@ -34,6 +36,50 @@ const FILTERS: { id: FilterType; icon: string; label: string }[] = [
     { id: 'contrast_down',   icon: '◐',   label: 'Contraste -' },
 ];
 
+interface Toast {
+    id: string;
+    message: string;
+    type: 'success' | 'info' | 'warning';
+}
+
+const TUTORIAL_SLIDES = [
+    {
+        title: "¡Bienvenido al Editor por Gestos! 🎨",
+        description: "Esta aplicación premium te permite editar fotos e interactuar con capas usando gestos naturales de tus manos frente a la cámara. ¡Veamos cómo!",
+        icon: "✨",
+    },
+    {
+        title: "Pincel (Dibujo libre) 🖌️",
+        description: "Juntá tus dedos pulgar e índice haciendo una PINZA (👌) con una mano y movela frente a la cámara para dibujar trazos libres sobre el lienzo.",
+        icon: "👌",
+    },
+    {
+        title: "Borrador (Limpieza) 🧹",
+        description: "Mostrá el gesto de PAZ (dos dedos extendidos ✌️) frente a la cámara para borrar partes de la capa de dibujo activa actual.",
+        icon: "✌️",
+    },
+    {
+        title: "Mover y Seleccionar ✋",
+        description: "Señalá con tu índice (gesto POINT 👆) para posicionar el puntero, y hacé PINZA (👌) para agarrar y arrastrar imágenes, textos o formas.",
+        icon: "👆",
+    },
+    {
+        title: "Ocultar/Mostrar Capa 👍",
+        description: "Mostrá un PULGAR ARRIBA (👍) frente a la cámara para ocultar la capa activa de inmediato. Mostralo de nuevo para volver a activarla.",
+        icon: "👍",
+    },
+    {
+        title: "Mover Capa en el Stack ↕️",
+        description: "Realizá un movimiento vertical rápido (Swipe) hacia arriba o abajo para mover la capa activa hacia adelante o hacia atrás en el stack visual.",
+        icon: "↕️",
+    },
+    {
+        title: "Ajustar Opacidad (2 Manos) 🙌",
+        description: "Realizá el gesto PINZA (👌) con ambas manos simultáneamente y separalas o juntalas para regular la opacidad de la capa activa del 0 al 100%.",
+        icon: "🙌",
+    },
+];
+
 // ─── Divider ──────────────────────────────────────────────────────────────────
 const Divider = () => <div className="w-px h-8 bg-gray-300 mx-1 shrink-0" />;
 
@@ -54,7 +100,7 @@ const ToolButton = ({
     const base = 'px-2.5 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150 shrink-0';
     const variants: Record<string, string> = {
         default: active
-            ? 'bg-indigo-600 text-white border-indigo-700 shadow-md scale-105'
+            ? 'bg-indigo-600 text-white border-indigo-700 shadow-md scale-105 animate-pulse-pop'
             : 'bg-white border-gray-200 hover:bg-indigo-50 hover:border-indigo-300 text-gray-700',
         filter:  'bg-white border-gray-200 hover:bg-purple-50 hover:border-purple-300 text-gray-700 hover:text-purple-700',
         danger:  'bg-white border-red-200 hover:bg-red-50 text-red-600 hover:border-red-400',
@@ -75,9 +121,42 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     currentAction = 'NONE',
     gestures = [],
     isGesturePaused = false,
+    onToggleGesturePause,
 }) => {
     const canvasRef    = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Toasts state
+    const [toasts, setToasts] = useState<Toast[]>([]);
+
+    const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
+        const id = Math.random().toString(36).substring(2, 9);
+        setToasts((prev) => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, 3000);
+    }, []);
+
+    // Tutorial states
+    const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+    const [tutorialSlide, setTutorialSlide] = useState(0);
+
+    // Collapsible settings state
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+    // Calibration settings state
+    const [pinchSensitivity, setPinchSensitivity] = useState(0.05); // default pinch threshold distance
+    const [swipeSensitivity, setSwipeSensitivity] = useState(0.15); // default swipe delta Y threshold
+    const [minPinchDistance, setMinPinchDistance] = useState(0.08); // default two-hand min opacity dist
+    const [maxPinchDistance, setMaxPinchDistance] = useState(0.45); // default two-hand max opacity dist
+
+    // Check tutorial first load
+    useEffect(() => {
+        const seen = localStorage.getItem('tutorial_seen');
+        if (seen !== 'true') {
+            setIsTutorialOpen(true);
+        }
+    }, []);
 
     const {
         currentTool,
@@ -111,6 +190,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         hands,
         gestures,
         isGesturePaused,
+        onToggleGesturePause,
+        showToast,
+        
+        // Calibrations
+        pinchSensitivity,
+        swipeSensitivity,
+        minPinchDistance,
+        maxPinchDistance,
     });
 
     // Sync parent-driven action (e.g. gesture → action) into the hook
@@ -138,6 +225,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         link.download = 'edited-image.png';
         link.href = dataUrl;
         link.click();
+    };
+
+    const handleCloseTutorial = () => {
+        setIsTutorialOpen(false);
+        localStorage.setItem('tutorial_seen', 'true');
+        playToggleSound(true);
+        showToast('Tutorial completado. ¡Que te diviertas editando!', 'success');
+    };
+
+    const handlePrevSlide = () => {
+        if (tutorialSlide > 0) {
+            setTutorialSlide(prev => prev - 1);
+            playToggleSound(true);
+        }
+    };
+
+    const handleNextSlide = () => {
+        if (tutorialSlide < TUTORIAL_SLIDES.length - 1) {
+            setTutorialSlide(prev => prev + 1);
+            playToggleSound(true);
+        } else {
+            handleCloseTutorial();
+        }
     };
 
     const canvasWidth  = 800;
@@ -238,7 +348,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 </div>
 
                 {hands.length >= 2 && !isGesturePaused && (
-                    <span className="text-xs text-indigo-600 animate-pulse ml-2 shrink-0">
+                    <span className="text-xs text-indigo-600 animate-pulse ml-2 shrink-0 font-medium">
                         ↔️ Grosor ajustable con 2 manos
                     </span>
                 )}
@@ -361,7 +471,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </div>
 
                     {/* Layers scrollable stack */}
-                    <div className="flex-1 flex flex-col gap-2 overflow-y-auto max-h-[350px] pr-1">
+                    <div className="flex-1 flex flex-col gap-2 overflow-y-auto max-h-[300px] pr-1">
                         <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Pila de Capas</span>
                         
                         {layers.length === 0 ? (
@@ -458,7 +568,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
                     {/* Active opacity controls */}
                     {activeLayer && (
-                        <div className="pt-3 border-t border-gray-200 flex flex-col gap-2 mt-auto">
+                        <div className="pt-3 border-t border-gray-200 flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-gray-700">Opacidad Capa</span>
                                 <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded">
@@ -480,14 +590,191 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                             )}
                         </div>
                     )}
+
+                    {/* Collapsible settings and calibration */}
+                    <div className="border-t border-gray-200 pt-3 mt-auto flex flex-col gap-1.5">
+                        <button
+                            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                            className="w-full py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg flex items-center justify-between transition-all"
+                        >
+                            <span>⚙️ Configuración & Calibración</span>
+                            <span>{isSettingsOpen ? '▲' : '▼'}</span>
+                        </button>
+
+                        {isSettingsOpen && (
+                            <div className="flex flex-col gap-3 p-2.5 bg-white rounded-lg border border-gray-200 mt-1 text-[11px] max-h-[220px] overflow-y-auto shadow-inner">
+                                {/* Sensibilidad de Swipe */}
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between font-semibold text-gray-600">
+                                        <span>Sensibilidad Swipe Y</span>
+                                        <span className="font-mono text-indigo-600">{swipeSensitivity.toFixed(2)}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.05"
+                                        max="0.30"
+                                        step="0.01"
+                                        value={swipeSensitivity}
+                                        onChange={(e) => setSwipeSensitivity(Number(e.target.value))}
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Pinch Sensitivity */}
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between font-semibold text-gray-600">
+                                        <span>Sensibilidad Pinch (Gesto)</span>
+                                        <span className="font-mono text-indigo-600">{pinchSensitivity.toFixed(3)}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.02"
+                                        max="0.10"
+                                        step="0.005"
+                                        value={pinchSensitivity}
+                                        onChange={(e) => setPinchSensitivity(Number(e.target.value))}
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Min/Max pinch distances */}
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between font-semibold text-gray-600">
+                                        <span>Pinza Dist. Mín (0% Opacidad)</span>
+                                        <span className="font-mono text-indigo-600">{minPinchDistance.toFixed(2)}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.02"
+                                        max="0.20"
+                                        step="0.01"
+                                        value={minPinchDistance}
+                                        onChange={(e) => setMinPinchDistance(Number(e.target.value))}
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
+                                    />
+                                </div>
+
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between font-semibold text-gray-600">
+                                        <span>Pinza Dist. Máx (100% Opacidad)</span>
+                                        <span className="font-mono text-indigo-600">{maxPinchDistance.toFixed(2)}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.30"
+                                        max="0.70"
+                                        step="0.01"
+                                        value={maxPinchDistance}
+                                        onChange={(e) => setMaxPinchDistance(Number(e.target.value))}
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
+                                    />
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setTutorialSlide(0);
+                                        setIsTutorialOpen(true);
+                                    }}
+                                    className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg transition-all text-center border border-indigo-200 mt-1"
+                                >
+                                    ❔ Ver Tutorial de Gestos
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
             {/* Hint bar */}
             <div className="text-center text-xs text-gray-500 pb-1">
                 <span>👌 Pincel · ✌️ Borrador · 👆 Mover · ✋ Pausar ·</span>
-                <span className="ml-1">Gestos: 👍 oculta/muestra capa activa · Deslizar Y mueve en orden · Pinza 2 manos opacidad</span>
+                <span className="ml-1">Atajos: <b>B</b> Pincel · <b>E</b> Borrador · <b>Ctrl+Z</b> Deshacer · <b>Ctrl+S</b> Exportar · <b>Espacio</b> Pausa</span>
             </div>
+
+            {/* ── Tutorial Interactive Overlay Modal ────────────────────── */}
+            {isTutorialOpen && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-5 border border-gray-100 animate-slide-in">
+                        {/* Slide content */}
+                        <div className="flex flex-col items-center text-center gap-4">
+                            <div className="text-6xl p-4 bg-indigo-50 rounded-full w-24 h-24 flex items-center justify-center shadow-inner">
+                                {TUTORIAL_SLIDES[tutorialSlide].icon}
+                            </div>
+                            <h2 className="text-xl font-bold text-gray-900">
+                                {TUTORIAL_SLIDES[tutorialSlide].title}
+                            </h2>
+                            <p className="text-sm text-gray-600 leading-relaxed max-w-sm">
+                                {TUTORIAL_SLIDES[tutorialSlide].description}
+                            </p>
+                        </div>
+
+                        {/* Slide dots */}
+                        <div className="flex justify-center gap-1.5 mt-2">
+                            {TUTORIAL_SLIDES.map((_, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => {
+                                        setTutorialSlide(index);
+                                        playToggleSound(true);
+                                    }}
+                                    className={`h-2 rounded-full transition-all duration-300 ${
+                                        index === tutorialSlide ? 'w-6 bg-indigo-600' : 'w-2 bg-gray-300 hover:bg-gray-400'
+                                    }`}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center justify-between gap-4 mt-2">
+                            <button
+                                onClick={handleCloseTutorial}
+                                className="text-sm text-gray-500 hover:text-gray-700 font-semibold px-4 py-2"
+                            >
+                                Saltar tutorial
+                            </button>
+
+                            <div className="flex gap-2">
+                                {tutorialSlide > 0 && (
+                                    <button
+                                        onClick={handlePrevSlide}
+                                        className="px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-semibold transition-all"
+                                    >
+                                        Atrás
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleNextSlide}
+                                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-md hover:shadow-lg"
+                                >
+                                    {tutorialSlide === TUTORIAL_SLIDES.length - 1 ? '¡Comenzar!' : 'Siguiente'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toast Notifications ───────────────────────────────────── */}
+            <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+                {toasts.map((t) => (
+                    <div
+                        key={t.id}
+                        className={`px-4 py-2.5 rounded-xl shadow-lg text-white text-xs font-semibold flex items-center gap-2 pointer-events-auto animate-slide-in border transition-all duration-300
+                            ${t.type === 'success'
+                                ? 'bg-emerald-600 border-emerald-500'
+                                : t.type === 'warning'
+                                ? 'bg-rose-600 border-rose-500'
+                                : 'bg-indigo-600 border-indigo-500'
+                            }`}
+                    >
+                        <span>
+                            {t.type === 'success' ? '✅' : t.type === 'warning' ? '⚠️' : 'ℹ️'}
+                        </span>
+                        <span>{t.message}</span>
+                    </div>
+                ))}
+            </div>
+
         </div>
     );
 };

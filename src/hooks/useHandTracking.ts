@@ -186,13 +186,18 @@ export function useHandTracking(options: UseHandTrackingOptions) {
                 canvasRef.current.height = videoRef.current.videoHeight;
             }
 
+            let lastProcessTime = 0;
             // Iniciar detección
             const camera = new Camera(videoRef.current, {
                 onFrame: async () => {
-                    if (handsRef.current) {
-                        await handsRef.current.send({
-                            image: videoRef.current!,
-                        });
+                    const now = Date.now();
+                    if (now - lastProcessTime >= 50) { // Limit to 20fps
+                        lastProcessTime = now;
+                        if (handsRef.current) {
+                            await handsRef.current.send({
+                                image: videoRef.current!,
+                            });
+                        }
                     }
                 },
                 width: 640,

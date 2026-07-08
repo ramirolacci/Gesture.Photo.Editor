@@ -46,3 +46,36 @@ code {
     height: auto !important;
     max-width: 100%;
 }
+
+/* Custom slide-in animations for toasts and popups */
+@keyframes slide-in {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in {
+    animation: slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Tool change scale pop animation */
+@keyframes pulse-pop {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.06);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.animate-pulse-pop {
+    animation: pulse-pop 0.25s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}

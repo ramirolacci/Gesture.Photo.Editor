@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { fabric } from 'fabric';
+import { playSelectSound, playSuccessSound, playToggleSound } from '../utils/audioFeedback';
 
 export type FilterType = 'grayscale' | 'invert' | 'blur' | 'brightness_up' | 'brightness_down' | 'contrast_up' | 'contrast_down';
 
@@ -20,6 +21,14 @@ interface UseCanvasManipulationOptions {
     hands?: HandLandmarks[];
     gestures?: RecognizedGesture[];
     isGesturePaused?: boolean;
+    onToggleGesturePause?: () => void;
+    showToast?: (message: string, type: 'success' | 'info' | 'warning') => void;
+    
+    // Sensitivity and calibration settings
+    pinchSensitivity?: number;
+    swipeSensitivity?: number;
+    minPinchDistance?: number;
+    maxPinchDistance?: number;
 }
 
 export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
@@ -29,6 +38,12 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         hands = [],
         gestures = [],
         isGesturePaused = false,
+        onToggleGesturePause,
+        showToast,
+        pinchSensitivity = 0.05,
+        swipeSensitivity = 0.15,
+        minPinchDistance = 0.08,
+        maxPinchDistance = 0.45,
     } = options;
 
     const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
@@ -146,8 +161,26 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             syncLayers();
         }
 
+        // Reproducir sonido e informar herramienta seleccionada
+        playSelectSound();
+        const toolLabels: Record<EditorAction, string> = {
+            SELECT_BRUSH: 'Pincel',
+            SELECT_ERASER: 'Borrador',
+            SELECT_MOVE: 'Mover y Gráficos',
+            SELECT_ZOOM: 'Zoom',
+            PAN_CANVAS: 'Desplazar',
+            APPLY_FILTER: 'Filtro',
+            DRAW_RECT: 'Rectángulo',
+            DRAW_CIRCLE: 'Círculo / Elipse',
+            DRAW_LINE: 'Línea',
+            UNDO: 'Deshacer',
+            REDO: 'Rehacer',
+            NONE: 'Inactivo'
+        };
+        showToast?.(`Herramienta activa: ${toolLabels[tool] || tool}`, 'info');
+
         if (onActionCompleted) onActionCompleted(tool);
-    }, [onActionCompleted, syncLayers]);
+    }, [onActionCompleted, syncLayers, showToast]);
 
     // ─── Canvas initialization ────────────────────────────────────────────────
 
@@ -202,6 +235,75 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             fabricCanvasRef.current = null;
         };
     }, [canvasRef, syncLayers]);
+
+    // ─── Keyboard Shortcuts Listener ──────────────────────────────────────────
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignorar atajos si el usuario escribe en campos de texto
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
+
+            const key = e.key.toLowerCase();
+            const isCtrl = e.ctrlKey || e.metaKey;
+
+            if (key === 'b') {
+                e.preventDefault();
+                selectTool('SELECT_BRUSH');
+            } else if (key === 'e') {
+                e.preventDefault();
+                selectTool('SELECT_ERASER');
+            } else if (isCtrl && key === 'z') {
+                e.preventDefault();
+                // Deshacer básico (borrar el último elemento agregado en el canvas)
+                const canvas = fabricCanvasRef.current;
+                if (canvas) {
+                    const objects = canvas.getObjects();
+                    if (objects.length > 0) {
+                        const last = objects[objects.length - 1];
+                        const lastName = (last as any).name || 'objeto';
+                        canvas.remove(last);
+                        canvas.discardActiveObject();
+                        canvas.requestRenderAll();
+                        syncLayers();
+
+                        playToggleSound(false); // Sonido apagado/eliminación
+                        showToast?.(`Deshacer (Ctrl+Z): Eliminado "${lastName}"`, 'warning');
+                    } else {
+                        showToast?.('No hay elementos para deshacer', 'info');
+                    }
+                }
+            } else if (isCtrl && key === 's') {
+                e.preventDefault();
+                const canvas = fabricCanvasRef.current;
+                if (canvas) {
+                    const active = canvas.getActiveObject();
+                    canvas.discardActiveObject();
+                    canvas.requestRenderAll();
+                    const dataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
+                    if (active) { canvas.setActiveObject(active); canvas.requestRenderAll(); }
+                    const link = document.createElement('a');
+                    link.download = 'edited-image.png';
+                    link.href = dataUrl;
+                    link.click();
+                    playSuccessSound();
+                    showToast?.('Imagen exportada como PNG con éxito (Ctrl+S)', 'success');
+                }
+            } else if (e.code === 'Space') {
+                e.preventDefault();
+                if (onToggleGesturePause) {
+                    onToggleGesturePause();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [selectTool, syncLayers, showToast, onToggleGesturePause]);
 
     // ─── Mouse event handlers ─────────────────────────────────────────────────
 
@@ -380,6 +482,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         const hand = hands[0];
         const gesture = gestures.find((g) => g.hand === hand.handedness) || gestures[0];
         const indexTip = hand.landmarks[8];
+        const thumbTip = hand.landmarks[4];
 
         if (!indexTip) {
             targetPosRef.current = null;
@@ -397,9 +500,21 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             };
         }
 
-        isPinchingRef.current = gesture.type === 'PINCH';
+        // Calibrar la detección del Pinch comparando la distancia real
+        let localIsPinching = false;
+        if (thumbTip) {
+            const dx = thumbTip.x - indexTip.x;
+            const dy = thumbTip.y - indexTip.y;
+            const dz = thumbTip.z - indexTip.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            localIsPinching = dist < pinchSensitivity;
+        } else {
+            localIsPinching = gesture.type === 'PINCH';
+        }
+
+        isPinchingRef.current = localIsPinching;
         isEraserRef.current = gesture.type === 'PEACE';
-    }, [hands, gestures, isGesturePaused]);
+    }, [hands, gestures, isGesturePaused, pinchSensitivity]);
 
     // ─── Gesture actions handler (Thumbs up, Swipe, Opacity) ───────────────────
 
@@ -414,9 +529,14 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         if (hasThumbsUp && !wasThumbsUpRef.current) {
             const activeObj = canvas.getActiveObject();
             if (activeObj) {
-                activeObj.set('visible', !activeObj.visible);
+                const newVisible = !activeObj.visible;
+                activeObj.set('visible', newVisible);
                 canvas.requestRenderAll();
                 syncLayers();
+
+                // Reproducir audio + Toast
+                playToggleSound(newVisible);
+                showToast?.(`👍 Gesto: Capa "${(activeObj as any).name}" ${newVisible ? 'visible' : 'oculta'}`, 'info');
                 console.log('Thumbs Up -> Toggled visibility for: ', (activeObj as any).name);
             }
         }
@@ -437,20 +557,24 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                     const deltaY = last.y - first.y; // 0 arriba, 1 abajo
                     const timeDiff = last.timestamp - first.timestamp;
 
-                    if (timeDiff > 50 && Math.abs(deltaY) > 0.15) {
+                    // Usar swipeSensitivity configurable
+                    if (timeDiff > 50 && Math.abs(deltaY) > swipeSensitivity) {
                         const activeObj = canvas.getActiveObject();
                         if (activeObj) {
                             if (deltaY < 0) {
                                 // Mover arriba
                                 canvas.bringForward(activeObj);
+                                showToast?.(`↕️ Gesto: Subiendo capa "${(activeObj as any).name}"`, 'info');
                                 console.log('Swipe Up -> Mover capa arriba');
                             } else {
                                 // Mover abajo
                                 canvas.sendBackwards(activeObj);
+                                showToast?.(`↕️ Gesto: Bajando capa "${(activeObj as any).name}"`, 'info');
                                 console.log('Swipe Down -> Mover capa abajo');
                             }
                             canvas.requestRenderAll();
                             syncLayers();
+                            playSelectSound();
                             lastSwipeTimeRef.current = now;
                             positionHistoryRef.current = [];
                         }
@@ -474,10 +598,8 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                     const dy = p1.y - p0.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
 
-                    // Mapear distancia (0.1 a 0.5) a opacidad (0 a 1)
-                    const min = 0.08;
-                    const max = 0.45;
-                    const opacity = Math.min(1, Math.max(0, (dist - min) / (max - min)));
+                    // Mapear distancia (minPinchDistance a maxPinchDistance) a opacidad (0 a 1)
+                    const opacity = Math.min(1, Math.max(0, (dist - minPinchDistance) / (maxPinchDistance - minPinchDistance)));
 
                     const activeObj = canvas.getActiveObject();
                     if (activeObj) {
@@ -488,7 +610,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 }
             }
         }
-    }, [hands, gestures, isGesturePaused, syncLayers]);
+    }, [hands, gestures, isGesturePaused, syncLayers, swipeSensitivity, minPinchDistance, maxPinchDistance, showToast]);
 
     // ─── requestAnimationFrame loop ───────────────────────────────────────────
 
@@ -759,7 +881,11 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         canvas.setActiveObject(img);
         canvas.requestRenderAll();
         syncLayers();
-    }, [syncLayers]);
+
+        // Audio + Toast
+        playSuccessSound();
+        showToast?.('Nueva capa de dibujo creada', 'success');
+    }, [syncLayers, showToast]);
 
     const addImageLayer = useCallback((imageUrl: string, name?: string) => {
         const canvas = fabricCanvasRef.current;
@@ -788,8 +914,12 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             canvas.setActiveObject(img);
             canvas.requestRenderAll();
             syncLayers();
+
+            // Audio + Toast
+            playSuccessSound();
+            showToast?.(`Capa de imagen "${imgAny.name}" agregada`, 'success');
         });
-    }, [syncLayers]);
+    }, [syncLayers, showToast]);
 
     const addTextLayer = useCallback(() => {
         const canvas = fabricCanvasRef.current;
@@ -813,7 +943,11 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         canvas.setActiveObject(text);
         canvas.requestRenderAll();
         syncLayers();
-    }, [syncLayers]);
+
+        // Audio + Toast
+        playSuccessSound();
+        showToast?.('Nueva capa de texto agregada', 'success');
+    }, [syncLayers, showToast]);
 
     const addShapeLayer = useCallback((shapeType: 'rect' | 'circle' | 'line') => {
         const canvas = fabricCanvasRef.current;
@@ -872,7 +1006,11 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         canvas.setActiveObject(shapeObj);
         canvas.requestRenderAll();
         syncLayers();
-    }, [syncLayers]);
+
+        // Audio + Toast
+        playSuccessSound();
+        showToast?.(`Capa de forma "${name}" agregada`, 'success');
+    }, [syncLayers, showToast]);
 
     const loadImage = useCallback((imageUrl: string) => {
         addImageLayer(imageUrl, 'Imagen Cargada');
@@ -908,7 +1046,10 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         canvas.clear();
         canvas.setBackgroundColor('#ffffff', canvas.renderAll.bind(canvas));
         syncLayers();
-    }, [syncLayers]);
+
+        playToggleSound(false);
+        showToast?.('Canvas limpiado por completo', 'warning');
+    }, [syncLayers, showToast]);
 
     const applyFilter = useCallback((filterType: FilterType) => {
         const canvas = fabricCanvasRef.current;
@@ -949,12 +1090,16 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 img.filters.push(filterInstance);
                 img.applyFilters();
                 canvas.requestRenderAll();
+                
+                playSuccessSound();
+                showToast?.(`Filtro "${filterType}" aplicado a la capa "${(img as any).name}"`, 'success');
                 console.log(`Aplicado filtro ${filterType} a la capa ${(img as any).name}`);
             }
         } else {
+            showToast?.('Selecciona una capa de imagen para aplicar filtros', 'warning');
             console.log('El objeto seleccionado no es una capa de imagen.');
         }
-    }, []);
+    }, [showToast]);
 
     // ─── Extra Layer Operations ───────────────────────────────────────────────
 
@@ -962,11 +1107,16 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         const canvas = fabricCanvasRef.current;
         const obj = canvas?.getObjects().find((o) => (o as any).id === id);
         if (obj) {
-            obj.set('visible', !obj.visible);
+            const newVisible = !obj.visible;
+            obj.set('visible', newVisible);
             canvas?.requestRenderAll();
             syncLayers();
+
+            // Audio + Toast
+            playToggleSound(newVisible);
+            showToast?.(`Capa "${(obj as any).name}" ${newVisible ? 'visible' : 'oculta'}`, 'info');
         }
-    }, [syncLayers]);
+    }, [syncLayers, showToast]);
 
     const setLayerOpacity = useCallback((id: string, opacity: number) => {
         const canvas = fabricCanvasRef.current;
@@ -992,12 +1142,17 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         const canvas = fabricCanvasRef.current;
         const obj = canvas?.getObjects().find((o) => (o as any).id === id);
         if (obj) {
+            const name = (obj as any).name;
             canvas?.remove(obj);
             canvas?.discardActiveObject();
             canvas?.requestRenderAll();
             syncLayers();
+
+            // Audio + Toast
+            playToggleSound(false);
+            showToast?.(`Capa "${name}" eliminada`, 'warning');
         }
-    }, [syncLayers]);
+    }, [syncLayers, showToast]);
 
     const moveLayerUp = useCallback((id: string) => {
         const canvas = fabricCanvasRef.current;
@@ -1006,6 +1161,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             canvas?.bringForward(obj);
             canvas?.requestRenderAll();
             syncLayers();
+            playSelectSound();
         }
     }, [syncLayers]);
 
@@ -1016,6 +1172,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             canvas?.sendBackwards(obj);
             canvas?.requestRenderAll();
             syncLayers();
+            playSelectSound();
         }
     }, [syncLayers]);
 
@@ -1054,9 +1211,13 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 canvas?.setActiveObject(cloned);
                 canvas?.requestRenderAll();
                 syncLayers();
+
+                // Audio + Toast
+                playSuccessSound();
+                showToast?.(`Capa "${clonedAny.name}" creada (duplicada)`, 'success');
             });
         }
-    }, [syncLayers]);
+    }, [syncLayers, showToast]);
 
     const mergeLayerBelow = useCallback((id: string) => {
         const canvas = fabricCanvasRef.current;
@@ -1109,11 +1270,17 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         canvas.requestRenderAll();
                         tempFabricCanvas.dispose();
                         syncLayers();
+
+                        // Audio + Toast
+                        playSuccessSound();
+                        showToast?.('Capas fusionadas correctamente', 'success');
                     });
                 });
             });
+        } else {
+            showToast?.('No hay ninguna capa inferior con la cual fusionar', 'warning');
         }
-    }, [syncLayers]);
+    }, [syncLayers, showToast]);
 
     // ─── Return API ───────────────────────────────────────────────────────────
 
