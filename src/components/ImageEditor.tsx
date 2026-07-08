@@ -123,11 +123,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     isGesturePaused = false,
     onToggleGesturePause,
 }) => {
-    const canvasRef    = useRef<HTMLCanvasElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const canvasRef       = useRef<HTMLCanvasElement>(null);
+    const fileInputRef    = useRef<HTMLInputElement>(null);
+    const projectInputRef = useRef<HTMLInputElement>(null);
 
     // Toasts state
     const [toasts, setToasts] = useState<Toast[]>([]);
+
+    // Export panel state
+    const [isExportOpen, setIsExportOpen] = useState(false);
+    const [jpgQuality, setJpgQuality] = useState(0.92);
+    const [exportScale, setExportScale] = useState(2);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -159,31 +166,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     }, []);
 
     const {
-        currentTool,
-        selectTool,
-        brushColor,
-        setBrushColor,
-        brushSize,
-        setBrushSize,
+        currentTool, selectTool,
+        brushColor, setBrushColor,
+        brushSize, setBrushSize,
         pointerPos,
-        loadImage,
-        exportImage,
-        clearCanvas,
-        applyFilter,
-        
-        // Capas API
+        projectName, setProjectName,
+        lastAutoSave,
+
+        // History
+        undo, redo, canUndo, canRedo,
+        historyEntries, clearHistory,
+
+        // Image/Export
+        loadImage, exportAs, clearCanvas, applyFilter,
+
+        // Project
+        saveProject, loadProject, loadAutoSave,
+
+        // Layers API
         layers,
-        addDrawingLayer,
-        addTextLayer,
-        addShapeLayer,
-        toggleLayerVisibility,
-        setLayerOpacity,
-        selectLayer,
-        deleteLayer,
-        moveLayerUp,
-        moveLayerDown,
-        duplicateLayer,
-        mergeLayerBelow,
+        addDrawingLayer, addTextLayer, addShapeLayer,
+        toggleLayerVisibility, setLayerOpacity, selectLayer, deleteLayer,
+        moveLayerUp, moveLayerDown, duplicateLayer, mergeLayerBelow,
     } = useCanvasManipulation({
         canvasRef,
         onActionCompleted,
@@ -192,8 +196,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         isGesturePaused,
         onToggleGesturePause,
         showToast,
-        
-        // Calibrations
         pinchSensitivity,
         swipeSensitivity,
         minPinchDistance,
@@ -218,14 +220,25 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleExport = () => {
-        const dataUrl = exportImage();
-        if (!dataUrl) return;
-        const link = document.createElement('a');
-        link.download = 'edited-image.png';
-        link.href = dataUrl;
-        link.click();
+    const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            if (ev.target?.result) loadProject(ev.target.result as string);
+        };
+        reader.readAsText(file);
+        if (projectInputRef.current) projectInputRef.current.value = '';
     };
+
+    const handleExportPNG  = () => exportAs({ format: 'png',         scale: exportScale });
+    const handleExportJPG  = () => exportAs({ format: 'jpg',         scale: exportScale, jpgQuality });
+    const handleExportPDF  = () => exportAs({ format: 'pdf',         scale: exportScale });
+    const handleExportZIP  = () => exportAs({ format: 'layers-zip',  scale: exportScale });
+
+    const autoSaveLabel = lastAutoSave
+        ? `Auto-guardado ${Math.round((Date.now() - lastAutoSave.getTime()) / 60000)} min atrás`
+        : 'Sin auto-guardado aún';
 
     const handleCloseTutorial = () => {
         setIsTutorialOpen(false);
@@ -290,12 +303,42 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
                 <Divider />
 
+                {/* Undo / Redo */}
+                <ToolButton variant="default" active={false} onClick={undo}
+                    title="Deshacer (Ctrl+Z)">
+                    <span className={canUndo ? 'opacity-100' : 'opacity-30'}>↩ Undo</span>
+                </ToolButton>
+                <ToolButton variant="default" active={false} onClick={redo}
+                    title="Rehacer (Ctrl+Y)">
+                    <span className={canRedo ? 'opacity-100' : 'opacity-30'}>↪ Redo</span>
+                </ToolButton>
+
+                <Divider />
+
                 {/* Actions */}
                 <ToolButton variant="danger" active={false} onClick={clearCanvas} title="Limpiar todo el canvas">
                     🗑️ Limpiar
                 </ToolButton>
-                <ToolButton variant="success" active={false} onClick={handleExport} title="Exportar como PNG">
-                    💾 Exportar
+
+                <Divider />
+
+                {/* Project */}
+                <ToolButton variant="default" active={false} onClick={saveProject} title="Guardar proyecto (.gpe)">
+                    💾 Guardar
+                </ToolButton>
+                <ToolButton variant="default" active={false} onClick={() => projectInputRef.current?.click()} title="Abrir proyecto (.gpe)">
+                    📂 Abrir
+                </ToolButton>
+                <ToolButton variant="default" active={false} onClick={loadAutoSave} title="Restaurar auto-guardado">
+                    ⏮️ Auto
+                </ToolButton>
+                <input ref={projectInputRef} type="file" accept=".gpe,.json" onChange={handleLoadProject} className="hidden" />
+
+                <Divider />
+
+                {/* Export */}
+                <ToolButton variant="success" active={isExportOpen} onClick={() => setIsExportOpen(p => !p)} title="Opciones de exportación">
+                    📤 Exportar ▾
                 </ToolButton>
             </div>
 
@@ -363,6 +406,38 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </ToolButton>
                 ))}
             </div>
+
+            {/* ── Export Panel (collapsible) ───────────────────────────── */}
+            {isExportOpen && (
+                <div className="flex items-center gap-3 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex-wrap animate-slide-in">
+                    <span className="text-xs font-bold text-emerald-700 shrink-0">📤 Exportar:</span>
+
+                    <button onClick={handleExportPNG} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all">PNG (Alta res)</button>
+
+                    <div className="flex items-center gap-1.5">
+                        <button onClick={handleExportJPG} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg shadow-sm transition-all">JPG</button>
+                        <span className="text-[10px] text-gray-500">Calidad:</span>
+                        <input type="range" min="0.1" max="1" step="0.05" value={jpgQuality}
+                            onChange={(e) => setJpgQuality(Number(e.target.value))}
+                            className="w-16 h-1 accent-amber-500 cursor-pointer" />
+                        <span className="text-[10px] font-mono text-amber-700 w-8">{Math.round(jpgQuality * 100)}%</span>
+                    </div>
+
+                    <button onClick={handleExportPDF} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg shadow-sm transition-all">PDF</button>
+                    <button onClick={handleExportZIP} className="px-3 py-1.5 bg-violet-500 hover:bg-violet-600 text-white text-xs font-semibold rounded-lg shadow-sm transition-all">📦 Capas ZIP</button>
+
+                    <div className="flex items-center gap-1.5 ml-auto">
+                        <span className="text-[10px] text-gray-500">Escala:</span>
+                        <select value={exportScale} onChange={(e) => setExportScale(Number(e.target.value))}
+                            className="text-[10px] bg-white border border-gray-200 rounded px-1 py-0.5 cursor-pointer">
+                            <option value={1}>1x (800×600)</option>
+                            <option value={2}>2x (1600×1200)</option>
+                            <option value={3}>3x (2400×1800)</option>
+                            <option value={4}>4x (3200×2400)</option>
+                        </select>
+                    </div>
+                </div>
+            )}
 
             {/* ── Row 4: Grid Canvas + Layers Panel ────────────────────── */}
             <div className="flex flex-col lg:flex-row gap-6 items-stretch">
@@ -591,6 +666,68 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         </div>
                     )}
 
+                    {/* ── Project name & auto-save ─────────────────────── */}
+                    <div className="border-t border-gray-200 pt-3 flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 shrink-0">Proyecto</span>
+                            <input
+                                type="text"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                className="flex-1 text-xs font-semibold text-gray-800 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white min-w-0"
+                                placeholder="Nombre del proyecto"
+                            />
+                        </div>
+                        <div className="text-[9px] text-gray-400 text-center">
+                            {autoSaveLabel} · Auto-guardado cada 5 min
+                        </div>
+                    </div>
+
+                    {/* ── History panel ────────────────────────────────────── */}
+                    <div className="border-t border-gray-200 pt-3 flex flex-col gap-1.5">
+                        <button
+                            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+                            className="w-full py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg flex items-center justify-between transition-all"
+                        >
+                            <span>🕐 Historial ({historyEntries.length})</span>
+                            <span>{isHistoryOpen ? '▲' : '▼'}</span>
+                        </button>
+
+                        {isHistoryOpen && (
+                            <div className="flex flex-col gap-1.5 p-2 bg-white rounded-lg border border-gray-200 mt-1 text-[11px] max-h-[160px] overflow-y-auto shadow-inner">
+                                {historyEntries.length === 0 ? (
+                                    <div className="text-center text-gray-400 py-3">Sin acciones en el historial</div>
+                                ) : (
+                                    historyEntries.map((entry, i) => (
+                                        <div
+                                            key={entry.id}
+                                            className={`flex items-center gap-2 px-2 py-1.5 rounded-md ${
+                                                i === 0 ? 'bg-indigo-50 border border-indigo-100' : 'bg-gray-50'
+                                            }`}
+                                        >
+                                            <span className="text-gray-400 text-[9px] font-mono shrink-0">
+                                                {new Date(entry.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                            </span>
+                                            <span className={`truncate ${
+                                                i === 0 ? 'font-bold text-indigo-700' : 'text-gray-600'
+                                            }`}>
+                                                {entry.description}
+                                            </span>
+                                        </div>
+                                    ))
+                                )}
+                                {historyEntries.length > 0 && (
+                                    <button
+                                        onClick={clearHistory}
+                                        className="text-[10px] text-red-500 hover:text-red-700 text-center mt-1 font-semibold"
+                                    >
+                                        Limpiar historial
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Collapsible settings and calibration */}
                     <div className="border-t border-gray-200 pt-3 mt-auto flex flex-col gap-1.5">
                         <button
@@ -603,78 +740,44 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
                         {isSettingsOpen && (
                             <div className="flex flex-col gap-3 p-2.5 bg-white rounded-lg border border-gray-200 mt-1 text-[11px] max-h-[220px] overflow-y-auto shadow-inner">
-                                {/* Sensibilidad de Swipe */}
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between font-semibold text-gray-600">
                                         <span>Sensibilidad Swipe Y</span>
                                         <span className="font-mono text-indigo-600">{swipeSensitivity.toFixed(2)}</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        min="0.05"
-                                        max="0.30"
-                                        step="0.01"
-                                        value={swipeSensitivity}
+                                    <input type="range" min="0.05" max="0.30" step="0.01" value={swipeSensitivity}
                                         onChange={(e) => setSwipeSensitivity(Number(e.target.value))}
-                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
-                                    />
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer" />
                                 </div>
-
-                                {/* Pinch Sensitivity */}
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between font-semibold text-gray-600">
                                         <span>Sensibilidad Pinch (Gesto)</span>
                                         <span className="font-mono text-indigo-600">{pinchSensitivity.toFixed(3)}</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        min="0.02"
-                                        max="0.10"
-                                        step="0.005"
-                                        value={pinchSensitivity}
+                                    <input type="range" min="0.02" max="0.10" step="0.005" value={pinchSensitivity}
                                         onChange={(e) => setPinchSensitivity(Number(e.target.value))}
-                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
-                                    />
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer" />
                                 </div>
-
-                                {/* Min/Max pinch distances */}
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between font-semibold text-gray-600">
                                         <span>Pinza Dist. Mín (0% Opacidad)</span>
                                         <span className="font-mono text-indigo-600">{minPinchDistance.toFixed(2)}</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        min="0.02"
-                                        max="0.20"
-                                        step="0.01"
-                                        value={minPinchDistance}
+                                    <input type="range" min="0.02" max="0.20" step="0.01" value={minPinchDistance}
                                         onChange={(e) => setMinPinchDistance(Number(e.target.value))}
-                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
-                                    />
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer" />
                                 </div>
-
                                 <div className="flex flex-col gap-1">
                                     <div className="flex justify-between font-semibold text-gray-600">
                                         <span>Pinza Dist. Máx (100% Opacidad)</span>
                                         <span className="font-mono text-indigo-600">{maxPinchDistance.toFixed(2)}</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        min="0.30"
-                                        max="0.70"
-                                        step="0.01"
-                                        value={maxPinchDistance}
+                                    <input type="range" min="0.30" max="0.70" step="0.01" value={maxPinchDistance}
                                         onChange={(e) => setMaxPinchDistance(Number(e.target.value))}
-                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
-                                    />
+                                        className="w-full h-1 rounded accent-indigo-600 cursor-pointer" />
                                 </div>
-
                                 <button
-                                    onClick={() => {
-                                        setTutorialSlide(0);
-                                        setIsTutorialOpen(true);
-                                    }}
+                                    onClick={() => { setTutorialSlide(0); setIsTutorialOpen(true); }}
                                     className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg transition-all text-center border border-indigo-200 mt-1"
                                 >
                                     ❔ Ver Tutorial de Gestos
@@ -688,7 +791,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             {/* Hint bar */}
             <div className="text-center text-xs text-gray-500 pb-1">
                 <span>👌 Pincel · ✌️ Borrador · 👆 Mover · ✋ Pausar ·</span>
-                <span className="ml-1">Atajos: <b>B</b> Pincel · <b>E</b> Borrador · <b>Ctrl+Z</b> Deshacer · <b>Ctrl+S</b> Exportar · <b>Espacio</b> Pausa</span>
+                <span className="ml-1">Atajos: <b>B</b> Pincel · <b>E</b> Borrador · <b>Ctrl+Z</b> Deshacer · <b>Ctrl+Y</b> Rehacer · <b>Ctrl+S</b> Exportar · <b>Espacio</b> Pausa</span>
             </div>
 
             {/* ── Tutorial Interactive Overlay Modal ────────────────────── */}

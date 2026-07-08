@@ -132,6 +132,7 @@ function App() {
                                 currentAction={currentAction}
                                 gestures={gestures}
                                 isGesturePaused={isGesturePaused}
+                                onToggleGesturePause={() => setIsGesturePaused(p => !p)}
                             />
                         </section>
 
