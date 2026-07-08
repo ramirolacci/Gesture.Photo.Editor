@@ -6,6 +6,32 @@ import { useProjectHistory } from './useProjectHistory';
 import { serializeProject, deserializeProject, validateProjectJSON } from '../utils/projectSerializer';
 import { exportCanvas, ExportOptions } from '../utils/canvasExporter';
 
+const createStarPoints = (centerX: number, centerY: number, points: number, innerRadius: number, outerRadius: number) => {
+    const results = [];
+    const angle = Math.PI / points;
+    for (let i = 0; i < 2 * points; i++) {
+        const r = (i % 2 === 0) ? outerRadius : innerRadius;
+        const currAngle = i * angle - Math.PI / 2;
+        results.push({
+            x: centerX + r * Math.cos(currAngle),
+            y: centerY + r * Math.sin(currAngle)
+        });
+    }
+    return results;
+};
+
+const createRegularPolygonPoints = (centerX: number, centerY: number, sides: number, radius: number) => {
+    const results = [];
+    const angle = (2 * Math.PI) / sides;
+    for (let i = 0; i < sides; i++) {
+        results.push({
+            x: centerX + radius * Math.cos(i * angle),
+            y: centerY + radius * Math.sin(i * angle)
+        });
+    }
+    return results;
+};
+
 export type FilterType = 'grayscale' | 'invert' | 'blur' | 'brightness_up' | 'brightness_down' | 'contrast_up' | 'contrast_down';
 
 export interface LayerInfo {
@@ -67,6 +93,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
     // Layers state
     const [layers, setLayers] = useState<LayerInfo[]>([]);
+    const [activeObjectProperties, setActiveObjectProperties] = useState<any>(null);
 
     // Project name
     const [projectName, setProjectName] = useState<string>(() =>
@@ -103,6 +130,13 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const wasThumbsUpRef = useRef(false);
     const positionHistoryRef = useRef<{ y: number; timestamp: number }[]>([]);
     const lastSwipeTimeRef = useRef(0);
+
+    // Two-hand gestural manipulation refs
+    const initialTwoHandDistRef = useRef<number | null>(null);
+    const initialTwoHandAngleRef = useRef<number | null>(null);
+    const initialObjScaleRef = useRef<{ x: number; y: number } | null>(null);
+    const initialObjAngleRef = useRef<number | null>(null);
+    const lastPinchTimeRef = useRef<number>(0);
 
     // ─── Layer sync ───────────────────────────────────────────────────────────
 
@@ -143,6 +177,58 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         });
 
         setLayers([...layersList].reverse());
+    }, []);
+
+    const updateActiveProperties = useCallback(() => {
+        const canvas = fabricCanvasRef.current;
+        const active = canvas?.getActiveObject();
+        if (!active) {
+            setActiveObjectProperties(null);
+            return;
+        }
+
+        let shadowProps = null;
+        if (active.shadow && typeof active.shadow === 'object') {
+            const sh = active.shadow as fabric.Shadow;
+            shadowProps = {
+                color: sh.color || 'rgba(0,0,0,0.3)',
+                blur: sh.blur || 10,
+                offsetX: sh.offsetX || 5,
+                offsetY: sh.offsetY || 5
+            };
+        }
+
+        let isGrad = false;
+        let gradColor1 = '#4f46e5';
+        let gradColor2 = '#10b981';
+        if (active.fill && typeof active.fill === 'object' && (active.fill as any).type === 'linear') {
+            isGrad = true;
+            const stops = (active.fill as any).colorStops || [];
+            if (stops.length >= 2) {
+                gradColor1 = stops[0].color;
+                gradColor2 = stops[1].color;
+            }
+        }
+
+        const a = active as any;
+        setActiveObjectProperties({
+            id: a.id,
+            type: a.layerType || active.type,
+            fontFamily: a.fontFamily || 'Arial',
+            fontSize: a.fontSize || 24,
+            fill: typeof active.fill === 'string' ? active.fill : gradColor1,
+            isGradient: isGrad,
+            gradientColor2: gradColor2,
+            fontWeight: a.fontWeight || 'normal',
+            fontStyle: a.fontStyle || 'normal',
+            underline: a.underline || false,
+            textAlign: a.textAlign || 'left',
+            stroke: a.stroke || '#000000',
+            strokeWidth: a.strokeWidth || 0,
+            shadow: shadowProps,
+            angle: Math.round(a.angle || 0),
+            opacity: a.opacity !== undefined ? a.opacity : 1,
+        });
     }, []);
 
     // ─── History ──────────────────────────────────────────────────────────────
@@ -222,6 +308,9 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             DRAW_RECT: 'Rectángulo',
             DRAW_CIRCLE: 'Círculo / Elipse',
             DRAW_LINE: 'Línea',
+            DRAW_TRIANGLE: 'Triángulo',
+            DRAW_STAR: 'Estrella',
+            DRAW_POLYGON: 'Polígono',
             UNDO: 'Deshacer',
             REDO: 'Rehacer',
             NONE: 'Inactivo',
@@ -268,15 +357,20 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         canvas.requestRenderAll();
         syncLayers();
 
+        const onSync = () => {
+            syncLayers();
+            updateActiveProperties();
+        };
+
         const syncEvents = ['object:added', 'object:removed', 'selection:created', 'selection:updated', 'selection:cleared', 'object:modified'];
-        syncEvents.forEach((evt) => canvas.on(evt, syncLayers));
+        syncEvents.forEach((evt) => canvas.on(evt, onSync));
 
         return () => {
-            syncEvents.forEach((evt) => canvas.off(evt, syncLayers));
+            syncEvents.forEach((evt) => canvas.off(evt, onSync));
             canvas.dispose();
             fabricCanvasRef.current = null;
         };
-    }, [canvasRef, syncLayers]);
+    }, [canvasRef, syncLayers, updateActiveProperties]);
 
     // ─── Auto-save every 5 minutes ────────────────────────────────────────────
 
@@ -398,25 +492,54 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         lastDrawPosRef.current = { x: drawX, y: drawY };
                     }
                 }
-            } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE'].includes(tool)) {
-                pushSnapshot(`Nueva forma: ${tool === 'DRAW_RECT' ? 'Rectángulo' : tool === 'DRAW_CIRCLE' ? 'Círculo' : 'Línea'}`);
+            } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE', 'DRAW_TRIANGLE', 'DRAW_STAR', 'DRAW_POLYGON'].includes(tool)) {
+                const shapeNameMap: Record<string, string> = {
+                    DRAW_RECT: 'Rectángulo',
+                    DRAW_CIRCLE: 'Círculo',
+                    DRAW_LINE: 'Línea',
+                    DRAW_TRIANGLE: 'Triángulo',
+                    DRAW_STAR: 'Estrella',
+                    DRAW_POLYGON: 'Polígono'
+                };
+                pushSnapshot(`Nueva forma: ${shapeNameMap[tool] || 'Forma'}`);
                 isMouseDrawingRef.current = true;
                 const startPt = pointer;
                 let shape: fabric.Object;
 
                 const nameSuffix = canvas.getObjects().length + 1;
+                const baseOptions = {
+                    left: startPt.x,
+                    top: startPt.y,
+                    fill: 'transparent',
+                    stroke: brushColorRef.current,
+                    strokeWidth: brushSizeRef.current,
+                    selectable: true,
+                    hasControls: true
+                };
+
                 if (tool === 'DRAW_RECT') {
-                    shape = new fabric.Rect({ left: startPt.x, top: startPt.y, width: 0, height: 0, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                    shape = new fabric.Rect({ ...baseOptions, width: 0, height: 0 });
                 } else if (tool === 'DRAW_CIRCLE') {
-                    shape = new fabric.Ellipse({ left: startPt.x, top: startPt.y, rx: 0, ry: 0, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current } as any);
+                    shape = new fabric.Ellipse({ ...baseOptions, rx: 0, ry: 0 } as any);
+                } else if (tool === 'DRAW_LINE') {
+                    shape = new fabric.Line([startPt.x, startPt.y, startPt.x, startPt.y], {
+                        stroke: brushColorRef.current,
+                        strokeWidth: brushSizeRef.current,
+                        selectable: true,
+                        hasControls: true
+                    });
+                } else if (tool === 'DRAW_TRIANGLE') {
+                    shape = new fabric.Triangle({ ...baseOptions, width: 0, height: 0 });
+                } else if (tool === 'DRAW_STAR') {
+                    shape = new fabric.Polygon(createStarPoints(0, 0, 5, 0, 0), baseOptions);
                 } else {
-                    shape = new fabric.Line([startPt.x, startPt.y, startPt.x, startPt.y], { stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                    shape = new fabric.Polygon(createRegularPolygonPoints(0, 0, 6, 0), baseOptions);
                 }
 
                 const shapeAny = shape as any;
                 shapeAny.id = 'layer_' + Date.now();
                 shapeAny.layerType = 'shape';
-                shapeAny.name = (tool === 'DRAW_RECT' ? 'Rectángulo ' : tool === 'DRAW_CIRCLE' ? 'Círculo ' : 'Línea ') + nameSuffix;
+                shapeAny.name = `${shapeNameMap[tool]} ${nameSuffix}`;
 
                 canvas.add(shape);
                 activeDrawingShapeRef.current = { shape, startPt };
@@ -450,16 +573,43 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                             canvas.requestRenderAll();
                         }
                     }
-                } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE'].includes(tool) && activeDrawingShapeRef.current) {
+                } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE', 'DRAW_TRIANGLE', 'DRAW_STAR', 'DRAW_POLYGON'].includes(tool) && activeDrawingShapeRef.current) {
                     const { shape, startPt } = activeDrawingShapeRef.current;
+                    const dx = pointer.x - startPt.x;
+                    const dy = pointer.y - startPt.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
                     if (tool === 'DRAW_RECT') {
-                        const width = pointer.x - startPt.x;
-                        const height = pointer.y - startPt.y;
-                        shape.set({ width: Math.abs(width), height: Math.abs(height), left: width < 0 ? pointer.x : startPt.x, top: height < 0 ? pointer.y : startPt.y });
+                        shape.set({ width: Math.abs(dx), height: Math.abs(dy), left: dx < 0 ? pointer.x : startPt.x, top: dy < 0 ? pointer.y : startPt.y });
                     } else if (tool === 'DRAW_CIRCLE') {
-                        (shape as fabric.Ellipse).set({ rx: Math.abs(pointer.x - startPt.x) / 2, ry: Math.abs(pointer.y - startPt.y) / 2, left: Math.min(startPt.x, pointer.x), top: Math.min(startPt.y, pointer.y) });
+                        (shape as fabric.Ellipse).set({
+                            rx: dist,
+                            ry: dist,
+                            left: startPt.x - dist,
+                            top: startPt.y - dist
+                        });
                     } else if (tool === 'DRAW_LINE') {
                         (shape as fabric.Line).set({ x2: pointer.x, y2: pointer.y });
+                    } else if (tool === 'DRAW_TRIANGLE') {
+                        shape.set({ width: Math.abs(dx), height: Math.abs(dy), left: dx < 0 ? pointer.x : startPt.x, top: dy < 0 ? pointer.y : startPt.y });
+                    } else if (tool === 'DRAW_STAR') {
+                        const pts = createStarPoints(0, 0, 5, dist * 0.4, dist);
+                        (shape as fabric.Polygon).set({
+                            points: pts,
+                            left: startPt.x - dist,
+                            top: startPt.y - dist,
+                            width: dist * 2,
+                            height: dist * 2
+                        } as any);
+                    } else if (tool === 'DRAW_POLYGON') {
+                        const pts = createRegularPolygonPoints(0, 0, 6, dist);
+                        (shape as fabric.Polygon).set({
+                            points: pts,
+                            left: startPt.x - dist,
+                            top: startPt.y - dist,
+                            width: dist * 2,
+                            height: dist * 2
+                        } as any);
                     }
                     canvas.requestRenderAll();
                 }
@@ -638,7 +788,58 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             }
 
             const currentHands = handsRef.current;
-            if (!isGesturePaused && currentHands.length >= 2) {
+            const activeObj = canvas.getActiveObject();
+
+            // Two-hand gestural rotation and scaling
+            if (!isGesturePaused && currentHands.length >= 2 && activeObj) {
+                const hand0Pinch = gestures.some(g => g.hand === currentHands[0].handedness && g.type === 'PINCH');
+                const hand1Pinch = gestures.some(g => g.hand === currentHands[1].handedness && g.type === 'PINCH');
+
+                if (hand0Pinch && hand1Pinch) {
+                    const p0 = currentHands[0].landmarks[8];
+                    const p1 = currentHands[1].landmarks[8];
+                    if (p0 && p1) {
+                        const dx = p1.x - p0.x;
+                        const dy = p1.y - p0.y;
+                        const currentDist = Math.sqrt(dx * dx + dy * dy);
+                        const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                        if (initialTwoHandDistRef.current === null || initialTwoHandAngleRef.current === null) {
+                            initialTwoHandDistRef.current = currentDist;
+                            initialTwoHandAngleRef.current = currentAngle;
+                            initialObjScaleRef.current = { x: activeObj.scaleX || 1, y: activeObj.scaleY || 1 };
+                            initialObjAngleRef.current = activeObj.angle || 0;
+                            pushSnapshot(`Rotar/Escalar: "${(activeObj as any).name}"`);
+                        } else {
+                            const angleDiff = currentAngle - initialTwoHandAngleRef.current!;
+                            const scaleRatio = currentDist / initialTwoHandDistRef.current!;
+
+                            activeObj.set({
+                                angle: (initialObjAngleRef.current! + angleDiff) % 360,
+                                scaleX: initialObjScaleRef.current!.x * scaleRatio,
+                                scaleY: initialObjScaleRef.current!.y * scaleRatio
+                            });
+                            canvas.requestRenderAll();
+                            syncLayers();
+                        }
+                    }
+                } else {
+                    if (initialTwoHandDistRef.current !== null) commitHead();
+                    initialTwoHandDistRef.current = null;
+                    initialTwoHandAngleRef.current = null;
+                    initialObjScaleRef.current = null;
+                    initialObjAngleRef.current = null;
+                }
+            } else {
+                if (initialTwoHandDistRef.current !== null) commitHead();
+                initialTwoHandDistRef.current = null;
+                initialTwoHandAngleRef.current = null;
+                initialObjScaleRef.current = null;
+                initialObjAngleRef.current = null;
+            }
+
+            // Brush size mapping from wrist distance if not pinching with both hands:
+            if (!isGesturePaused && currentHands.length >= 2 && !activeObj) {
                 const isBothPinching =
                     gestures.length >= 2 &&
                     gestures.some(g => g.hand === currentHands[0].handedness && g.type === 'PINCH') &&
@@ -718,25 +919,53 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         if (wasPinchingRef.current) commitHead();
                         lastDrawPosRef.current = null;
                     }
-                } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE'].includes(tool)) {
+                } else if (['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE', 'DRAW_TRIANGLE', 'DRAW_STAR', 'DRAW_POLYGON'].includes(tool)) {
                     if (isPinching) {
                         if (!wasPinchingRef.current) {
-                            pushSnapshot(`Nueva forma gestual: ${tool}`);
-                            let shape: fabric.Object;
                             const nameSuffix = canvas.getObjects().length + 1;
+                            const shapeNameMap: Record<string, string> = {
+                                DRAW_RECT: 'Rectángulo',
+                                DRAW_CIRCLE: 'Círculo',
+                                DRAW_LINE: 'Línea',
+                                DRAW_TRIANGLE: 'Triángulo',
+                                DRAW_STAR: 'Estrella',
+                                DRAW_POLYGON: 'Polígono'
+                            };
+                            pushSnapshot(`Nueva forma gestual: ${shapeNameMap[tool]}`);
+                            let shape: fabric.Object;
+                            const baseOptions = {
+                                left: pos.x,
+                                top: pos.y,
+                                fill: 'transparent',
+                                stroke: brushColorRef.current,
+                                strokeWidth: brushSizeRef.current,
+                                selectable: true,
+                                hasControls: true
+                            };
 
                             if (tool === 'DRAW_RECT') {
-                                shape = new fabric.Rect({ left: pos.x, top: pos.y, width: 0, height: 0, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                                shape = new fabric.Rect({ ...baseOptions, width: 0, height: 0 });
                             } else if (tool === 'DRAW_CIRCLE') {
-                                shape = new fabric.Ellipse({ left: pos.x, top: pos.y, rx: 0, ry: 0, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current } as any);
+                                shape = new fabric.Ellipse({ ...baseOptions, rx: 0, ry: 0 } as any);
+                            } else if (tool === 'DRAW_LINE') {
+                                shape = new fabric.Line([pos.x, pos.y, pos.x, pos.y], {
+                                    stroke: brushColorRef.current,
+                                    strokeWidth: brushSizeRef.current,
+                                    selectable: true,
+                                    hasControls: true
+                                });
+                            } else if (tool === 'DRAW_TRIANGLE') {
+                                shape = new fabric.Triangle({ ...baseOptions, width: 0, height: 0 });
+                            } else if (tool === 'DRAW_STAR') {
+                                shape = new fabric.Polygon(createStarPoints(0, 0, 5, 0, 0), baseOptions);
                             } else {
-                                shape = new fabric.Line([pos.x, pos.y, pos.x, pos.y], { stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                                shape = new fabric.Polygon(createRegularPolygonPoints(0, 0, 6, 0), baseOptions);
                             }
 
                             const shapeAny = shape as any;
                             shapeAny.id = 'layer_' + Date.now();
                             shapeAny.layerType = 'shape';
-                            shapeAny.name = (tool === 'DRAW_RECT' ? 'Rectángulo ' : tool === 'DRAW_CIRCLE' ? 'Círculo ' : 'Línea ') + nameSuffix;
+                            shapeAny.name = `${shapeNameMap[tool]} ${nameSuffix}`;
 
                             canvas.add(shape);
                             canvas.setActiveObject(shape);
@@ -744,13 +973,41 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                             canvas.requestRenderAll();
                         } else if (activeDrawingShapeRef.current) {
                             const { shape, startPt } = activeDrawingShapeRef.current;
+                            const dx = pos.x - startPt.x;
+                            const dy = pos.y - startPt.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+
                             if (tool === 'DRAW_RECT') {
-                                const w = pos.x - startPt.x; const h = pos.y - startPt.y;
-                                shape.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pos.x : startPt.x, top: h < 0 ? pos.y : startPt.y });
+                                shape.set({ width: Math.abs(dx), height: Math.abs(dy), left: dx < 0 ? pos.x : startPt.x, top: dy < 0 ? pos.y : startPt.y });
                             } else if (tool === 'DRAW_CIRCLE') {
-                                (shape as fabric.Ellipse).set({ rx: Math.abs(pos.x - startPt.x) / 2, ry: Math.abs(pos.y - startPt.y) / 2, left: Math.min(startPt.x, pos.x), top: Math.min(startPt.y, pos.y) } as any);
-                            } else {
+                                (shape as fabric.Ellipse).set({
+                                    rx: dist,
+                                    ry: dist,
+                                    left: startPt.x - dist,
+                                    top: startPt.y - dist
+                                });
+                            } else if (tool === 'DRAW_LINE') {
                                 (shape as fabric.Line).set({ x2: pos.x, y2: pos.y });
+                            } else if (tool === 'DRAW_TRIANGLE') {
+                                shape.set({ width: Math.abs(dx), height: Math.abs(dy), left: dx < 0 ? pos.x : startPt.x, top: dy < 0 ? pos.y : startPt.y });
+                            } else if (tool === 'DRAW_STAR') {
+                                const pts = createStarPoints(0, 0, 5, dist * 0.4, dist);
+                                (shape as fabric.Polygon).set({
+                                    points: pts,
+                                    left: startPt.x - dist,
+                                    top: startPt.y - dist,
+                                    width: dist * 2,
+                                    height: dist * 2
+                                } as any);
+                            } else if (tool === 'DRAW_POLYGON') {
+                                const pts = createRegularPolygonPoints(0, 0, 6, dist);
+                                (shape as fabric.Polygon).set({
+                                    points: pts,
+                                    left: startPt.x - dist,
+                                    top: startPt.y - dist,
+                                    width: dist * 2,
+                                    height: dist * 2
+                                } as any);
                             }
                             canvas.requestRenderAll();
                         }
@@ -762,6 +1019,18 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 } else if (tool === 'SELECT_MOVE') {
                     if (isPinching) {
                         if (!wasPinchingRef.current) {
+                            const now = Date.now();
+                            if (now - lastPinchTimeRef.current < 450) {
+                                if (activeObj && (activeObj as any).layerType === 'text') {
+                                    (activeObj as any).enterEditing();
+                                    canvas.requestRenderAll();
+                                    showToast?.('⌨️ Editando texto (Doble Pinch)', 'info');
+                                    lastPinchTimeRef.current = 0;
+                                    return;
+                                }
+                            }
+                            lastPinchTimeRef.current = now;
+
                             const pointer = new fabric.Point(pos.x, pos.y);
                             const objects = canvas.getObjects();
                             let found: fabric.Object | null = null;
@@ -873,7 +1142,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         });
     }, [withHistory, syncLayers, showToast]);
 
-    const addShapeLayer = useCallback(async (shapeType: 'rect' | 'circle' | 'line') => {
+    const addShapeLayer = useCallback(async (shapeType: 'rect' | 'circle' | 'line' | 'triangle' | 'star' | 'polygon') => {
         await withHistory(`Agregar forma: ${shapeType}`, () => {
             const canvas = fabricCanvasRef.current;
             if (!canvas) return;
@@ -881,26 +1150,111 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             const nameSuffix = canvas.getObjects().length + 1;
             let name = '';
 
+            const baseOptions = {
+                left: canvas.width! / 2 - 50,
+                top: canvas.height! / 2 - 50,
+                fill: 'transparent',
+                stroke: brushColorRef.current,
+                strokeWidth: brushSizeRef.current,
+                selectable: true,
+                hasControls: true,
+            };
+
             if (shapeType === 'rect') {
-                shapeObj = new fabric.Rect({ left: canvas.width! / 2 - 50, top: canvas.height! / 2 - 50, width: 100, height: 100, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                shapeObj = new fabric.Rect({ ...baseOptions, width: 100, height: 100 });
                 name = 'Rectángulo ' + nameSuffix;
             } else if (shapeType === 'circle') {
-                shapeObj = new fabric.Ellipse({ left: canvas.width! / 2 - 50, top: canvas.height! / 2 - 50, rx: 50, ry: 50, fill: 'transparent', stroke: brushColorRef.current, strokeWidth: brushSizeRef.current } as any);
+                shapeObj = new fabric.Ellipse({ ...baseOptions, rx: 50, ry: 50 } as any);
                 name = 'Círculo ' + nameSuffix;
+            } else if (shapeType === 'triangle') {
+                shapeObj = new fabric.Triangle({ ...baseOptions, width: 100, height: 100 });
+                name = 'Triángulo ' + nameSuffix;
+            } else if (shapeType === 'star') {
+                shapeObj = new fabric.Polygon(createStarPoints(0, 0, 5, 20, 50), baseOptions);
+                name = 'Estrella ' + nameSuffix;
+            } else if (shapeType === 'polygon') {
+                shapeObj = new fabric.Polygon(createRegularPolygonPoints(0, 0, 6, 50), baseOptions);
+                name = 'Hexágono ' + nameSuffix;
             } else {
-                shapeObj = new fabric.Line([canvas.width! / 2 - 50, canvas.height! / 2, canvas.width! / 2 + 50, canvas.height! / 2], { stroke: brushColorRef.current, strokeWidth: brushSizeRef.current });
+                shapeObj = new fabric.Line([
+                    canvas.width! / 2 - 50,
+                    canvas.height! / 2,
+                    canvas.width! / 2 + 50,
+                    canvas.height! / 2
+                ], {
+                    stroke: brushColorRef.current,
+                    strokeWidth: brushSizeRef.current,
+                    selectable: true,
+                    hasControls: true,
+                });
                 name = 'Línea ' + nameSuffix;
             }
-            shapeObj.set({ selectable: true, hasControls: true });
+
             const shapeAny = shapeObj as any;
             shapeAny.id = 'layer_' + Date.now();
             shapeAny.name = name;
             shapeAny.layerType = 'shape';
-            canvas.add(shapeObj); canvas.setActiveObject(shapeObj); canvas.requestRenderAll();
-            syncLayers(); playSuccessSound();
+
+            canvas.add(shapeObj);
+            canvas.setActiveObject(shapeObj);
+            canvas.requestRenderAll();
+            syncLayers();
+            playSuccessSound();
             showToast?.(`⏹️ Capa de forma "${name}" agregada`, 'success');
         });
     }, [withHistory, syncLayers, showToast]);
+
+    const setTextStyle = useCallback((property: string, value: any) => {
+        const canvas = fabricCanvasRef.current;
+        const activeObj = canvas?.getActiveObject();
+        if (canvas && activeObj && (activeObj as any).layerType === 'text') {
+            activeObj.set(property as any, value);
+            canvas.requestRenderAll();
+            syncLayers();
+        }
+    }, [syncLayers]);
+
+    const setShapeStyle = useCallback((property: string, value: any) => {
+        const canvas = fabricCanvasRef.current;
+        const activeObj = canvas?.getActiveObject();
+        if (canvas && activeObj) {
+            if (property === 'shadow') {
+                if (value) {
+                    activeObj.set('shadow', new fabric.Shadow({
+                        color: value.color || 'rgba(0,0,0,0.3)',
+                        blur: value.blur || 10,
+                        offsetX: value.offsetX || 5,
+                        offsetY: value.offsetY || 5
+                    }));
+                } else {
+                    activeObj.set('shadow', undefined as any);
+                }
+            } else if (property === 'gradient') {
+                if (value) {
+                    const grad = new fabric.Gradient({
+                        type: 'linear',
+                        coords: {
+                            x1: 0,
+                            y1: 0,
+                            x2: activeObj.width || 100,
+                            y2: activeObj.height || 100,
+                        },
+                        colorStops: [
+                            { offset: 0, color: value.color1 },
+                            { offset: 1, color: value.color2 }
+                        ]
+                    });
+                    activeObj.set('fill', grad);
+                } else {
+                    activeObj.set('fill', activeObj.get('stroke') || 'transparent');
+                }
+            } else {
+                activeObj.set(property as any, value);
+            }
+            canvas.requestRenderAll();
+            syncLayers();
+        }
+    }, [syncLayers]);
 
     const loadImage = useCallback((imageUrl: string) => {
         addImageLayer(imageUrl, 'Imagen Cargada');
@@ -1221,6 +1575,10 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         // Project
         saveProject, loadProject, loadAutoSave,
+
+        // Text/Shape Styles API
+        setTextStyle, setShapeStyle,
+        activeObjectProperties,
 
         // Layers API
         layers,

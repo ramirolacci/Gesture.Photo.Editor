@@ -52,6 +52,21 @@ const ACTION_INFO: Record<EditorAction, { icon: string; label: string; descripti
         label: 'Línea',
         description: 'Dibujá una línea recta',
     },
+    DRAW_TRIANGLE: {
+        icon: '🔺',
+        label: 'Triángulo',
+        description: 'Dibujá un triángulo',
+    },
+    DRAW_STAR: {
+        icon: '⭐',
+        label: 'Estrella',
+        description: 'Dibujá una estrella de 5 puntas',
+    },
+    DRAW_POLYGON: {
+        icon: '⬡',
+        label: 'Polígono',
+        description: 'Dibujá un polígono regular (Hexágono)',
+    },
     UNDO: {
         icon: '↩️',
         label: 'Deshacer',

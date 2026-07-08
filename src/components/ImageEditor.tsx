@@ -21,9 +21,12 @@ const DRAW_TOOLS: { id: EditorAction; icon: string; label: string }[] = [
 ];
 
 const SHAPE_TOOLS: { id: EditorAction; icon: string; label: string }[] = [
-    { id: 'DRAW_RECT',   icon: '⬜', label: 'Rectángulo' },
-    { id: 'DRAW_CIRCLE', icon: '⭕', label: 'Círculo / Elipse' },
-    { id: 'DRAW_LINE',   icon: '📏', label: 'Línea' },
+    { id: 'DRAW_RECT',     icon: '⬜', label: 'Rectángulo' },
+    { id: 'DRAW_CIRCLE',   icon: '⭕', label: 'Círculo / Elipse' },
+    { id: 'DRAW_LINE',     icon: '📏', label: 'Línea' },
+    { id: 'DRAW_TRIANGLE', icon: '🔺', label: 'Triángulo' },
+    { id: 'DRAW_STAR',     icon: '⭐', label: 'Estrella' },
+    { id: 'DRAW_POLYGON',  icon: '⬡', label: 'Hexágono' },
 ];
 
 const FILTERS: { id: FilterType; icon: string; label: string }[] = [
@@ -183,6 +186,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         // Project
         saveProject, loadProject, loadAutoSave,
 
+        // Text/Shape Styles API
+        setTextStyle, setShapeStyle,
+        activeObjectProperties,
+
         // Layers API
         layers,
         addDrawingLayer, addTextLayer, addShapeLayer,
@@ -266,7 +273,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const canvasWidth  = 800;
     const canvasHeight = 600;
 
-    const isShapeTool = ['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE'].includes(currentTool);
+    const isShapeTool = ['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE', 'DRAW_TRIANGLE', 'DRAW_STAR', 'DRAW_POLYGON'].includes(currentTool);
     const activeLayer = layers.find(l => l.active);
 
     return (
@@ -535,6 +542,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                         ⭕ Círculo
                                     </button>
                                     <button
+                                        onClick={() => addShapeLayer('triangle')}
+                                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2"
+                                    >
+                                        🔺 Triángulo
+                                    </button>
+                                    <button
+                                        onClick={() => addShapeLayer('star')}
+                                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2"
+                                    >
+                                        ⭐ Estrella
+                                    </button>
+                                    <button
+                                        onClick={() => addShapeLayer('polygon')}
+                                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2"
+                                    >
+                                        ⬡ Hexágono
+                                    </button>
+                                    <button
                                         onClick={() => addShapeLayer('line')}
                                         className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2"
                                     >
@@ -661,6 +686,277 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                             {hands.length >= 2 && gestures.some((g) => g.type === 'PINCH') && (
                                 <div className="text-[10px] text-center text-indigo-600 font-bold bg-indigo-50 p-2 border border-indigo-100 rounded-lg animate-pulse mt-1">
                                     🙌 Gestos: Controlando opacidad separando/juntando tus manos!
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── Text / Shape Properties Panel ────────────────── */}
+                    {activeLayer && activeObjectProperties && (
+                        <div className="pt-3 border-t border-gray-200 flex flex-col gap-3">
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+                                🛠️ Propiedades ({activeLayer.type === 'text' ? 'Texto' : 'Forma'})
+                            </span>
+
+                            {activeLayer.type === 'text' && (
+                                <div className="flex flex-col gap-2.5 bg-white p-2.5 border border-gray-200 rounded-lg shadow-sm">
+                                    {/* Font selector */}
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[10px] text-gray-500 font-semibold">Fuente</span>
+                                        <select
+                                            value={activeObjectProperties.fontFamily}
+                                            onChange={(e) => setTextStyle('fontFamily', e.target.value)}
+                                            className="text-xs border border-gray-200 rounded-md p-1 bg-gray-50 cursor-pointer"
+                                        >
+                                            <option value="Arial">Arial</option>
+                                            <option value="Georgia">Georgia</option>
+                                            <option value="Courier New">Courier New</option>
+                                            <option value="Times New Roman">Times New Roman</option>
+                                            <option value="Impact">Impact</option>
+                                            <option value="Comic Sans MS">Comic Sans MS</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Font size */}
+                                    <div className="flex flex-col gap-1">
+                                        <div className="flex justify-between font-semibold text-gray-600 text-[10px]">
+                                            <span>Tamaño</span>
+                                            <span className="font-mono text-indigo-600">{activeObjectProperties.fontSize}px</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={10}
+                                            max={120}
+                                            value={activeObjectProperties.fontSize}
+                                            onChange={(e) => setTextStyle('fontSize', Number(e.target.value))}
+                                            className="w-full h-1 rounded accent-indigo-600 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    {/* Color & alignment */}
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <span className="text-[10px] text-gray-500 font-semibold">Color</span>
+                                            <input
+                                                type="color"
+                                                value={activeObjectProperties.fill}
+                                                onChange={(e) => setTextStyle('fill', e.target.value)}
+                                                className="w-6 h-6 border-0 rounded cursor-pointer"
+                                            />
+                                        </div>
+
+                                        <div className="flex gap-1 ml-auto">
+                                            {['left', 'center', 'right'].map((align) => (
+                                                <button
+                                                    key={align}
+                                                    onClick={() => setTextStyle('textAlign', align)}
+                                                    className={`px-2 py-0.5 border text-xs rounded transition-all font-mono ${
+                                                        activeObjectProperties.textAlign === align
+                                                            ? 'bg-indigo-600 border-indigo-700 text-white font-bold'
+                                                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                                    }`}
+                                                >
+                                                    {align === 'left' ? '⬅️' : align === 'center' ? '⬌' : '➡️'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Text Styles (B / I / U) */}
+                                    <div className="flex gap-1.5 justify-center mt-1">
+                                        <button
+                                            onClick={() => setTextStyle('fontWeight', activeObjectProperties.fontWeight === 'bold' ? 'normal' : 'bold')}
+                                            className={`flex-1 py-1 text-xs border rounded transition-all font-bold ${
+                                                activeObjectProperties.fontWeight === 'bold'
+                                                    ? 'bg-indigo-600 border-indigo-700 text-white'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            B
+                                        </button>
+                                        <button
+                                            onClick={() => setTextStyle('fontStyle', activeObjectProperties.fontStyle === 'italic' ? 'normal' : 'italic')}
+                                            className={`flex-1 py-1 text-xs border rounded transition-all italic font-serif ${
+                                                activeObjectProperties.fontStyle === 'italic'
+                                                    ? 'bg-indigo-600 border-indigo-700 text-white'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            I
+                                        </button>
+                                        <button
+                                            onClick={() => setTextStyle('underline', !activeObjectProperties.underline)}
+                                            className={`flex-1 py-1 text-xs border rounded transition-all underline ${
+                                                activeObjectProperties.underline
+                                                    ? 'bg-indigo-600 border-indigo-700 text-white'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            U
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeLayer.type === 'shape' && (
+                                <div className="flex flex-col gap-2.5 bg-white p-2.5 border border-gray-200 rounded-lg shadow-sm">
+                                    {/* Colors: Solid or Gradient */}
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-1.5">
+                                            <input
+                                                type="checkbox"
+                                                id="chkGradient"
+                                                checked={activeObjectProperties.isGradient}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setShapeStyle('gradient', {
+                                                            color1: activeObjectProperties.fill,
+                                                            color2: '#10b981'
+                                                        });
+                                                    } else {
+                                                        setShapeStyle('fill', activeObjectProperties.fill);
+                                                    }
+                                                }}
+                                                className="rounded border-gray-300 accent-indigo-600"
+                                            />
+                                            <label htmlFor="chkGradient" className="text-[10px] text-gray-500 font-semibold select-none cursor-pointer">
+                                                Gradiente Lineal
+                                            </label>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-gray-500 font-semibold">Relleno</span>
+                                            <input
+                                                type="color"
+                                                value={activeObjectProperties.fill}
+                                                onChange={(e) => {
+                                                    if (activeObjectProperties.isGradient) {
+                                                        setShapeStyle('gradient', {
+                                                            color1: e.target.value,
+                                                            color2: activeObjectProperties.gradientColor2
+                                                        });
+                                                    } else {
+                                                        setShapeStyle('fill', e.target.value);
+                                                    }
+                                                }}
+                                                className="w-6 h-6 border-0 rounded cursor-pointer"
+                                            />
+
+                                            {activeObjectProperties.isGradient && (
+                                                <>
+                                                    <span className="text-[10px] text-gray-500 font-semibold">Color 2</span>
+                                                    <input
+                                                        type="color"
+                                                        value={activeObjectProperties.gradientColor2}
+                                                        onChange={(e) => {
+                                                            setShapeStyle('gradient', {
+                                                                color1: activeObjectProperties.fill,
+                                                                color2: e.target.value
+                                                            });
+                                                        }}
+                                                        className="w-6 h-6 border-0 rounded cursor-pointer"
+                                                    />
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Stroke / Border */}
+                                    <div className="flex items-center gap-2 border-t border-gray-100 pt-2">
+                                        <span className="text-[10px] text-gray-500 font-semibold">Borde</span>
+                                        <input
+                                            type="color"
+                                            value={activeObjectProperties.stroke}
+                                            onChange={(e) => setShapeStyle('stroke', e.target.value)}
+                                            className="w-5 h-5 border-0 rounded cursor-pointer"
+                                        />
+                                        <span className="text-[10px] text-gray-500 font-semibold ml-auto">Grosor</span>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={20}
+                                            value={activeObjectProperties.strokeWidth}
+                                            onChange={(e) => setShapeStyle('strokeWidth', Number(e.target.value))}
+                                            className="w-12 text-xs border border-gray-200 rounded p-0.5 text-center bg-gray-50 font-semibold font-mono"
+                                        />
+                                    </div>
+
+                                    {/* Shadow */}
+                                    <div className="flex flex-col gap-1 border-t border-gray-100 pt-2">
+                                        <div className="flex items-center gap-1.5">
+                                            <input
+                                                type="checkbox"
+                                                id="chkShadow"
+                                                checked={!!activeObjectProperties.shadow}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setShapeStyle('shadow', {
+                                                            color: 'rgba(0,0,0,0.35)',
+                                                            blur: 12,
+                                                            offsetX: 6,
+                                                            offsetY: 6
+                                                        });
+                                                    } else {
+                                                        setShapeStyle('shadow', null);
+                                                    }
+                                                }}
+                                                className="rounded border-gray-300 accent-indigo-600"
+                                            />
+                                            <label htmlFor="chkShadow" className="text-[10px] text-gray-500 font-semibold select-none cursor-pointer">
+                                                Sombra Paralela
+                                            </label>
+                                        </div>
+
+                                        {!!activeObjectProperties.shadow && (
+                                            <div className="grid grid-cols-2 gap-2 mt-1.5 p-1.5 bg-gray-50 border border-gray-200 rounded-md">
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[9px] text-gray-400">Desenfoque</span>
+                                                    <input
+                                                        type="range"
+                                                        min={1}
+                                                        max={30}
+                                                        value={activeObjectProperties.shadow.blur}
+                                                        onChange={(e) => setShapeStyle('shadow', {
+                                                            ...activeObjectProperties.shadow,
+                                                            blur: Number(e.target.value)
+                                                        })}
+                                                        className="w-full h-1 accent-indigo-600 cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[9px] text-gray-400">Desplazamiento</span>
+                                                    <input
+                                                        type="range"
+                                                        min={0}
+                                                        max={25}
+                                                        value={activeObjectProperties.shadow.offsetX}
+                                                        onChange={(e) => setShapeStyle('shadow', {
+                                                            ...activeObjectProperties.shadow,
+                                                            offsetX: Number(e.target.value),
+                                                            offsetY: Number(e.target.value)
+                                                        })}
+                                                        className="w-full h-1 accent-indigo-600 cursor-pointer"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Rotation Angle */}
+                                    <div className="flex flex-col gap-1 border-t border-gray-100 pt-2">
+                                        <div className="flex justify-between font-semibold text-gray-600 text-[10px]">
+                                            <span>Rotación</span>
+                                            <span className="font-mono text-indigo-600">{activeObjectProperties.angle}°</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={359}
+                                            value={activeObjectProperties.angle}
+                                            onChange={(e) => setShapeStyle('angle', Number(e.target.value))}
+                                            className="w-full h-1.5 rounded accent-indigo-600 cursor-pointer"
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </div>

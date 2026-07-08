@@ -38,6 +38,9 @@ export type EditorAction =
     | 'DRAW_RECT'
     | 'DRAW_CIRCLE'
     | 'DRAW_LINE'
+    | 'DRAW_TRIANGLE'
+    | 'DRAW_STAR'
+    | 'DRAW_POLYGON'
     | 'UNDO'
     | 'REDO'
     | 'NONE';
