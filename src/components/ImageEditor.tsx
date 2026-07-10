@@ -1,6 +1,9 @@
 ﻿import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
+import { useGestureCommands } from '../hooks/useGestureCommands';
+import { RadialMenu } from './RadialMenu';
+import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
     onActionCompleted?: (action: EditorAction) => void;
@@ -37,6 +40,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [toolFeedback, setToolFeedback] = useState<string | null>(null);
+    const [toolBadgeVisible, setToolBadgeVisible] = useState(false);
     const [pinchSensitivity, setPinchSensitivity] = useState(0.05);
     const [swipeSensitivity, setSwipeSensitivity] = useState(0.15);
     const [minPinchDistance, setMinPinchDistance] = useState(0.08);
@@ -53,14 +58,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const {
         currentTool,
         selectTool,
-        brushColor,
-        setBrushColor,
-        brushSize,
-        setBrushSize,
         pointerPos,
+        brushSize,
         loadImage,
-        exportAs,
-        clearCanvas,
         saveProject,
         loadProject,
         loadAutoSave,
@@ -79,11 +79,58 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         virtualPointerPos: handCursorPosition,
     });
 
+    const { activeCommand, radialMenuVisible, clearRadialMenu } = useGestureCommands({
+        hands,
+        gestures,
+        isGesturePaused,
+    });
+
     useEffect(() => {
         if (currentAction && currentAction !== 'NONE' && currentAction !== currentTool) {
             selectTool(currentAction);
         }
     }, [currentAction, currentTool, selectTool]);
+
+    useEffect(() => {
+        if (!activeCommand || activeCommand === 'NONE') return;
+
+        const commandMap: Record<string, EditorAction> = {
+            PINCH: 'SELECT_BRUSH',
+            PEACE: 'SELECT_ERASER',
+            POINT: 'SELECT_MOVE',
+            FIST: 'SELECT_ZOOM',
+            THUMBS_UP: 'NONE',
+        };
+
+        if (activeCommand === 'THUMBS_UP') {
+            setToolFeedback('☝️');
+            return;
+        }
+
+        const nextTool = commandMap[activeCommand];
+        if (nextTool && nextTool !== currentTool) {
+            setToolFeedback(activeCommand === 'PINCH' ? '🖌️' : activeCommand === 'PEACE' ? '🧹' : activeCommand === 'POINT' ? '✋' : '🔍');
+            selectTool(nextTool);
+            playSelectSound();
+        }
+    }, [activeCommand, currentTool, selectTool]);
+
+    useEffect(() => {
+        if (!toolFeedback) return;
+        const timeout = window.setTimeout(() => setToolFeedback(null), 1000);
+        return () => window.clearTimeout(timeout);
+    }, [toolFeedback]);
+
+    useEffect(() => {
+        if (hands.length === 0 || gestures.every((g) => g.type === 'NONE')) {
+            setToolBadgeVisible(false);
+            return;
+        }
+
+        setToolBadgeVisible(true);
+        const timeout = window.setTimeout(() => setToolBadgeVisible(false), 1800);
+        return () => window.clearTimeout(timeout);
+    }, [currentTool, hands.length, gestures]);
 
     const handleLoadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -151,6 +198,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             </div>
 
             <div className="pointer-events-none absolute inset-0 z-10">
+                {toolFeedback && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                        <div className="rounded-full border border-white/20 bg-black/70 px-4 py-3 text-3xl font-semibold text-white shadow-2xl backdrop-blur">
+                            {toolFeedback}
+                        </div>
+                    </div>
+                )}
+
                 <div className="pointer-events-auto absolute right-4 top-4 flex gap-2">
                     <button
                         onClick={() => fileInputRef.current?.click()}
@@ -168,16 +223,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </button>
                 </div>
 
-                <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur">
-                    <button onClick={() => selectTool('SELECT_BRUSH')} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">🖌️</button>
-                    <button onClick={() => selectTool('SELECT_ERASER')} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">🧹</button>
-                    <button onClick={() => selectTool('SELECT_MOVE')} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">✋</button>
-                    <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded-full border-0 bg-transparent p-0" />
-                    <button onClick={() => setBrushSize(Math.max(1, brushSize - 1))} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">−</button>
-                    <button onClick={() => setBrushSize(Math.min(50, brushSize + 1))} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">＋</button>
-                    <button onClick={() => clearCanvas()} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">🗑</button>
-                    <button onClick={() => exportAs({ format: 'png', scale: 2 })} className="rounded-full px-3 py-2 text-sm transition hover:bg-white/15">⬇</button>
-                </div>
+                {toolBadgeVisible && (
+                    <div className="pointer-events-none absolute right-4 top-14 rounded-full border border-white/15 bg-black/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/70 opacity-70 backdrop-blur">
+                        {currentTool === 'SELECT_BRUSH' ? '🖌️ Pincel' : currentTool === 'SELECT_ERASER' ? '🧹 Borrador' : currentTool === 'SELECT_MOVE' ? '✋ Mover' : currentTool === 'SELECT_ZOOM' ? '🔍 Zoom' : '⋯'}
+                    </div>
+                )}
             </div>
 
             {isSettingsOpen && (
@@ -217,6 +267,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </div>
                 </div>
             )}
+
+            <RadialMenu
+                visible={radialMenuVisible}
+                cursorPosition={handCursorPosition}
+                isConfirming={handCursorState?.isDrawing ?? false}
+                onSelect={(toolId) => {
+                    const mapped: Record<string, EditorAction> = {
+                        SELECT_BRUSH: 'SELECT_BRUSH',
+                        SELECT_ERASER: 'SELECT_ERASER',
+                        SELECT_MOVE: 'SELECT_MOVE',
+                        SELECT_ZOOM: 'SELECT_ZOOM',
+                    };
+                    const selected = mapped[toolId];
+                    if (selected) {
+                        setToolFeedback(toolId === 'SELECT_BRUSH' ? '🖌️' : toolId === 'SELECT_ERASER' ? '🧹' : toolId === 'SELECT_MOVE' ? '✋' : '🔍');
+                        selectTool(selected);
+                        playSelectSound();
+                    }
+                    clearRadialMenu();
+                }}
+                onClose={clearRadialMenu}
+            />
 
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLoadImage} className="hidden" />
             <input ref={projectInputRef} type="file" accept=".gpe,.json" onChange={handleLoadProject} className="hidden" />
