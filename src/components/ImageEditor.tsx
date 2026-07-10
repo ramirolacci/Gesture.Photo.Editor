@@ -4,7 +4,9 @@ import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
 import { useGestureCommands } from '../hooks/useGestureCommands';
 import { RadialMenu } from './RadialMenu';
 import { ColorWheel } from './ColorWheel';
+import { MiniMap } from './MiniMap';
 import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
+import { useZoomPan } from '../hooks/useZoomPan';
 import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
@@ -89,10 +91,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         isGesturePaused,
     });
 
+    const canvasWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const canvasHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
+
     const { color: twoHandColor, size: twoHandSize, visible: twoHandSelectorVisible } = useTwoHandGestures({
         hands,
         gestures,
-        viewportSize: { width: window.innerWidth, height: window.innerHeight },
+        viewportSize: { width: canvasWidth, height: canvasHeight },
+    });
+
+    const { zoomPercent, pan, viewportRect, mode, isActive } = useZoomPan({
+        canvasRef,
+        hands,
+        gestures,
+        viewportSize: { width: canvasWidth, height: canvasHeight },
     });
 
     useEffect(() => {
@@ -170,8 +182,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         event.target.value = '';
     };
 
-    const canvasWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const canvasHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
     const cursorPosition = handCursorPosition ?? pointerPos;
     const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
     const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : '#ef4444');
@@ -186,7 +196,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     return (
         <div className={`relative h-screen w-screen overflow-hidden ${className}`}>
             <div className="absolute inset-0">
-                <canvas ref={canvasRef} className="block h-screen w-screen" />
+                <div className="absolute inset-0 overflow-hidden">
+                    <canvas ref={canvasRef} className="block h-screen w-screen" />
+                </div>
                 {showCursor && cursorPosition && (
                     <div
                         className="pointer-events-none absolute flex items-center justify-center rounded-full border-2 transition-none"
@@ -216,6 +228,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
             <div className="pointer-events-none absolute inset-0 z-10">
                 <ColorWheel color={twoHandColor} size={twoHandSize} visible={twoHandSelectorVisible} />
+                <MiniMap zoom={zoomPercent / 100} pan={pan} viewportRect={viewportRect} visible={isActive} />
                 {toolFeedback && (
                     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                         <div className="rounded-full border border-white/20 bg-black/70 px-4 py-3 text-3xl font-semibold text-white shadow-2xl backdrop-blur">
@@ -250,6 +263,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 {twoHandSelectorVisible && (
                     <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
                         Color {Math.round(twoHandSize)}px
+                    </div>
+                )}
+
+                {isActive && (
+                    <div className="pointer-events-none absolute left-4 top-16 z-30 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
+                        {mode === 'zoom' ? `Zoom ${zoomPercent}%` : 'Pan'}
                     </div>
                 )}
             </div>
