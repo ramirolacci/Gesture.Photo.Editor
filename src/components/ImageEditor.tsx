@@ -6,9 +6,11 @@ import { RadialMenu } from './RadialMenu';
 import { ColorWheel } from './ColorWheel';
 import { MiniMap } from './MiniMap';
 import { QuickMenu } from './QuickMenu';
+import { GalleryOverlay } from './GalleryOverlay';
 import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
 import { useZoomPan } from '../hooks/useZoomPan';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { useAutoSave } from '../hooks/useAutoSave';
 import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
@@ -72,6 +74,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         saveProject,
         loadProject,
         loadAutoSave,
+        serializeCurrentProject,
         undo,
         redo,
         historyEntries,
@@ -132,6 +135,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         },
         onToast: showToast,
         historyEntries,
+    });
+
+    const { galleryVisible, galleryProjects, lastSavedAt, closeGallery } = useAutoSave({
+        hands,
+        gestures,
+        getProjectData: () => serializeCurrentProject(),
+        restoreProject: async (json) => {
+            await loadProject(json);
+        },
+        onToast: showToast,
+        onExport: async () => {
+            await exportAs({ format: 'png', scale: 2 });
+        },
     });
 
     useEffect(() => {
@@ -301,6 +317,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
                 {quickMenuVisible && <QuickMenu visible={quickMenuVisible} actions={quickActions} />}
 
+                <GalleryOverlay
+                    visible={galleryVisible}
+                    projects={galleryProjects}
+                    onClose={closeGallery}
+                    onOpen={(project) => {
+                        void loadProject(project.data);
+                        closeGallery();
+                    }}
+                />
+
                 {timelineVisible && (
                     <div className="pointer-events-none absolute bottom-4 left-4 z-30 rounded-2xl border border-white/15 bg-black/65 p-3 shadow-2xl backdrop-blur">
                         <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">Historial</div>
@@ -311,6 +337,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                 </button>
                             ))}
                         </div>
+                    </div>
+                )}
+
+                {lastSavedAt && (
+                    <div className="pointer-events-none absolute right-4 top-24 z-30 rounded-full border border-white/15 bg-black/50 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/70 backdrop-blur">
+                        Auto-save {new Date(lastSavedAt).toLocaleTimeString()}
                     </div>
                 )}
 

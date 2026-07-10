@@ -1567,11 +1567,18 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
     // ─── Project save / load ──────────────────────────────────────────────────
 
+    const serializeCurrentProject = useCallback(() => {
+        const canvas = fabricCanvasRef.current;
+        if (!canvas) return null;
+        const project = serializeProject(canvas, projectNameRef.current);
+        return JSON.stringify(project, null, 2);
+    }, []);
+
     const saveProject = useCallback(() => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
-        const project = serializeProject(canvas, projectNameRef.current);
-        const json = JSON.stringify(project, null, 2);
+        const json = serializeCurrentProject();
+        if (!json) return;
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -1589,7 +1596,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         playSuccessSound();
         showToast?.(`💾 Proyecto "${projectNameRef.current}" guardado`, 'success');
-    }, [showToast]);
+    }, [serializeCurrentProject, showToast]);
 
     const loadProject = useCallback(async (jsonString: string) => {
         try {
@@ -1663,7 +1670,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         clearCanvas, applyFilter,
 
         // Project
-        saveProject, loadProject, loadAutoSave,
+        saveProject, loadProject, loadAutoSave, serializeCurrentProject,
 
         // Text/Shape Styles API
         setTextStyle, setShapeStyle,
