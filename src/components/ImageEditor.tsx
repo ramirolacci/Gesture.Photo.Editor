@@ -5,8 +5,10 @@ import { useGestureCommands } from '../hooks/useGestureCommands';
 import { RadialMenu } from './RadialMenu';
 import { ColorWheel } from './ColorWheel';
 import { MiniMap } from './MiniMap';
+import { QuickMenu } from './QuickMenu';
 import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
 import { useZoomPan } from '../hooks/useZoomPan';
+import { useUndoRedo } from '../hooks/useUndoRedo';
 import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
@@ -70,6 +72,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         saveProject,
         loadProject,
         loadAutoSave,
+        undo,
+        redo,
+        historyEntries,
+        exportAs,
+        clearCanvas,
+        addDrawingLayer,
     } = useCanvasManipulation({
         canvasRef,
         onActionCompleted,
@@ -105,6 +113,25 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         hands,
         gestures,
         viewportSize: { width: canvasWidth, height: canvasHeight },
+    });
+
+    const { toastMessage, quickMenuVisible, timelineVisible, timelineIndex, timelineEntries, quickActions } = useUndoRedo({
+        hands,
+        gestures,
+        isPaused: isGesturePaused,
+        undo,
+        redo,
+        onQuickAction: async (action) => {
+            if (action === 'clear') {
+                await clearCanvas();
+            } else if (action === 'export') {
+                await exportAs({ format: 'png', scale: 2 });
+            } else if (action === 'newLayer') {
+                await addDrawingLayer();
+            }
+        },
+        onToast: showToast,
+        historyEntries,
     });
 
     useEffect(() => {
@@ -269,6 +296,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 {isActive && (
                     <div className="pointer-events-none absolute left-4 top-16 z-30 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
                         {mode === 'zoom' ? `Zoom ${zoomPercent}%` : 'Pan'}
+                    </div>
+                )}
+
+                {quickMenuVisible && <QuickMenu visible={quickMenuVisible} actions={quickActions} />}
+
+                {timelineVisible && (
+                    <div className="pointer-events-none absolute bottom-4 left-4 z-30 rounded-2xl border border-white/15 bg-black/65 p-3 shadow-2xl backdrop-blur">
+                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">Historial</div>
+                        <div className="flex items-center gap-2">
+                            {timelineEntries.map((entry, index) => (
+                                <button key={entry.id} className={`rounded-full border px-2 py-1 text-[10px] ${index === timelineIndex ? 'border-cyan-400 bg-cyan-500/30 text-white' : 'border-white/10 bg-white/10 text-white/70'}`}>
+                                    {entry.description}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {toastMessage && (
+                    <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
+                        <div className="rounded-full border border-white/20 bg-black/70 px-3 py-2 text-sm font-semibold text-white shadow-2xl backdrop-blur">
+                            {toastMessage}
+                        </div>
                     </div>
                 )}
             </div>
