@@ -48,6 +48,11 @@ export interface LayerInfo {
 const AUTOSAVE_KEY = 'gesture_editor_autosave';
 const PROJECT_NAME_KEY = 'gesture_editor_project_name';
 
+const getViewportSize = () => ({
+    width: window.innerWidth || 1280,
+    height: window.innerHeight || 720,
+});
+
 interface UseCanvasManipulationOptions {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     overlayCanvasRef?: React.RefObject<HTMLCanvasElement>;
@@ -326,11 +331,12 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     useEffect(() => {
         if (!canvasRef.current) return;
         const canvasEl = canvasRef.current;
+        const { width, height } = getViewportSize();
 
         const canvas = new fabric.Canvas(canvasEl, {
-            width: 800,
-            height: 600,
-            backgroundColor: '#ffffff',
+            width,
+            height,
+            backgroundColor: 'transparent',
             selection: true,
         });
 
@@ -338,11 +344,11 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         // Default drawing layer
         const hiddenCanvas = document.createElement('canvas');
-        hiddenCanvas.width = 800;
-        hiddenCanvas.height = 600;
+        hiddenCanvas.width = width;
+        hiddenCanvas.height = height;
         const hiddenCtx = hiddenCanvas.getContext('2d')!;
         hiddenCtx.fillStyle = 'rgba(0,0,0,0)';
-        hiddenCtx.fillRect(0, 0, 800, 600);
+        hiddenCtx.fillRect(0, 0, width, height);
 
         const img = new fabric.Image(hiddenCanvas, {
             left: 0, top: 0, selectable: true, hasControls: true,
@@ -367,8 +373,17 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         const syncEvents = ['object:added', 'object:removed', 'selection:created', 'selection:updated', 'selection:cleared', 'object:modified'];
         syncEvents.forEach((evt) => canvas.on(evt, onSync));
 
+        const resizeCanvas = () => {
+            const { width, height } = getViewportSize();
+            canvas.setDimensions({ width, height });
+            canvas.requestRenderAll();
+        };
+
+        window.addEventListener('resize', resizeCanvas);
+
         return () => {
             syncEvents.forEach((evt) => canvas.off(evt, onSync));
+            window.removeEventListener('resize', resizeCanvas);
             canvas.dispose();
             fabricCanvasRef.current = null;
         };
@@ -1080,11 +1095,12 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         await withHistory('Agregar capa de dibujo', () => {
             const canvas = fabricCanvasRef.current;
             if (!canvas) return;
+            const { width, height } = getViewportSize();
             const hiddenCanvas = document.createElement('canvas');
-            hiddenCanvas.width = 800; hiddenCanvas.height = 600;
+            hiddenCanvas.width = width; hiddenCanvas.height = height;
             const hiddenCtx = hiddenCanvas.getContext('2d')!;
             hiddenCtx.fillStyle = 'rgba(0,0,0,0)';
-            hiddenCtx.fillRect(0, 0, 800, 600);
+            hiddenCtx.fillRect(0, 0, width, height);
 
             const img = new fabric.Image(hiddenCanvas, { left: 0, top: 0, selectable: true, hasControls: true });
             const imgAny = img as any;

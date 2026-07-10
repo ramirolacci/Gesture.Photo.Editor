@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { CameraFeed } from './components/CameraFeed';
 import { ImageEditor } from './components/ImageEditor';
-import { GestureIndicator } from './components/GestureIndicator';
 import { Toolbar } from './components/Toolbar';
 import { useGestureRecognition } from './hooks/useGestureRecognition';
 import { HandLandmarks, RecognizedGesture, EditorAction } from './types/hand';
@@ -10,151 +9,155 @@ function App() {
     const [hands, setHands] = useState<HandLandmarks[]>([]);
     const [currentAction, setCurrentAction] = useState<EditorAction>('NONE');
     const [isGesturePaused, setIsGesturePaused] = useState(false);
+    const [showToolbar, setShowToolbar] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const wasOpenPalmRef = useRef(false);
+    const wasSettingsGestureRef = useRef(false);
+    const toolbarTimerRef = useRef<number | null>(null);
 
-    // Callback cuando se detectan manos
     const handleHandsDetected = useCallback((detectedHands: HandLandmarks[]) => {
         setHands(detectedHands);
     }, []);
 
-    // Callback cuando se reconoce un gesto
     const handleGestureDetected = useCallback(
-        (gesture: RecognizedGesture, action: EditorAction) => {
+        (_gesture: RecognizedGesture, action: EditorAction) => {
             if (isGesturePaused) return;
 
             setCurrentAction(action);
-            console.log(`Gesto detectado: ${gesture.type} (${gesture.hand}) → Acción: ${action}`);
-
-            // Ejecutar acciones en el editor si existen
-            if ((window as any).executeEditorAction) {
-                (window as any).executeEditorAction(action);
+            setShowToolbar(true);
+            if (toolbarTimerRef.current) {
+                window.clearTimeout(toolbarTimerRef.current);
             }
+            toolbarTimerRef.current = window.setTimeout(() => setShowToolbar(false), 3000);
         },
         [isGesturePaused]
     );
 
-    // Hook de reconocimiento de gestos
     const { gestures } = useGestureRecognition({
         hands,
         onGestureDetected: handleGestureDetected,
-        debounceMs: 500, // Evitar activaciones múltiples muy rápidas
+        debounceMs: 350,
     });
 
-    // Detectar transiciones al gesto OPEN_PALM (✋) para pausar/reanudar la detección
     useEffect(() => {
         const hasOpenPalm = gestures.some((g) => g.type === 'OPEN_PALM');
         if (hasOpenPalm && !wasOpenPalmRef.current) {
             setIsGesturePaused((prev) => !prev);
-            console.log('Toggled gesture detection pause state due to OPEN_PALM gesture.');
         }
         wasOpenPalmRef.current = hasOpenPalm;
     }, [gestures]);
 
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-            {/* Header */}
-            <header className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 py-4">
-                    <h1 className="text-2xl font-bold text-gray-900">
-                        🎨 Gesture Photo Editor
-                    </h1>
-                    <p className="text-sm text-gray-600 mt-1">
-                        Edita imágenes con gestos de tus manos
-                    </p>
-                </div>
-            </header>
+    useEffect(() => {
+        const specialGestureActive = hands.length >= 2 && gestures.every((g) => g.type === 'PEACE');
+        if (specialGestureActive && !wasSettingsGestureRef.current) {
+            setShowSettings((prev) => !prev);
+            setShowToolbar(true);
+        }
+        wasSettingsGestureRef.current = specialGestureActive;
+    }, [gestures, hands.length]);
 
-            {/* Contenido principal */}
-            <main className="max-w-7xl mx-auto px-4 py-8">
-                {/* Banner de estado de los gestos */}
-                <div
-                    className={`mb-6 p-4 rounded-xl border-2 transition-all duration-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow ${
-                        isGesturePaused
-                            ? 'bg-amber-50 border-amber-300 text-amber-900'
-                            : 'bg-green-50 border-green-300 text-green-950'
-                    }`}
-                >
-                    <div className="flex items-center gap-3">
-                        <span className="text-2xl">{isGesturePaused ? '⏸️' : '▶️'}</span>
-                        <div>
-                            <p className="font-semibold text-base">
-                                {isGesturePaused ? 'Detección de gestos pausada' : 'Detección de gestos activa'}
-                            </p>
-                            <p className="text-xs opacity-80 mt-0.5">
-                                {isGesturePaused
-                                    ? 'Mostrá la mano abierta (✋) o hacé click en el botón para reanudar la detección.'
-                                    : 'Mostrá la mano abierta (✋) para pausar temporalmente y evitar cambios accidentales.'}
-                            </p>
+    useEffect(() => {
+        const activeGesture = gestures.some((g) => g.type !== 'NONE');
+        if (activeGesture || currentAction !== 'NONE') {
+            setShowToolbar(true);
+            if (toolbarTimerRef.current) {
+                window.clearTimeout(toolbarTimerRef.current);
+            }
+            toolbarTimerRef.current = window.setTimeout(() => setShowToolbar(false), 3000);
+        }
+
+        return () => {
+            if (toolbarTimerRef.current) {
+                window.clearTimeout(toolbarTimerRef.current);
+            }
+        };
+    }, [gestures, currentAction]);
+
+    useEffect(() => {
+        const syncFullscreenState = () => {
+            setIsFullscreen(Boolean(document.fullscreenElement));
+        };
+
+        const enterFullscreen = async () => {
+            try {
+                if (!document.fullscreenElement) {
+                    await document.documentElement.requestFullscreen();
+                }
+            } catch {
+                // Ignored: browser may block fullscreen until user interaction
+            }
+        };
+
+        syncFullscreenState();
+        void enterFullscreen();
+        document.addEventListener('fullscreenchange', syncFullscreenState);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', syncFullscreenState);
+        };
+    }, []);
+
+    const handleExitFullscreen = useCallback(async () => {
+        try {
+            if (document.fullscreenElement) {
+                await document.exitFullscreen();
+            }
+        } catch {
+            // Ignored
+        }
+    }, []);
+
+    return (
+        <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
+            <CameraFeed onHandsDetected={handleHandsDetected} className="absolute inset-0 z-0" />
+
+            <div className="pointer-events-none absolute inset-0 z-10">
+                <div className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur">
+                    {isGesturePaused ? 'Pausa' : 'Live'}
+                </div>
+
+                <div className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur">
+                    {currentAction === 'NONE' ? 'Idle' : currentAction.replace('SELECT_', '').replace('DRAW_', '')}
+                </div>
+
+                <ImageEditor
+                    className="absolute inset-0 z-20"
+                    onActionCompleted={setCurrentAction}
+                    hands={hands}
+                    currentAction={currentAction}
+                    gestures={gestures}
+                    isGesturePaused={isGesturePaused}
+                    onToggleGesturePause={() => setIsGesturePaused((prev) => !prev)}
+                />
+
+                <Toolbar currentAction={currentAction} isVisible={showToolbar} />
+
+                {showSettings && (
+                    <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center pb-6">
+                        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur">
+                            <button
+                                onClick={() => setIsGesturePaused((prev) => !prev)}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
+                            >
+                                {isGesturePaused ? '▶' : '⏸'}
+                            </button>
+                            <button
+                                onClick={handleExitFullscreen}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
+                            >
+                                {isFullscreen ? '⤡' : '⤢'}
+                            </button>
+                            <button
+                                onClick={() => setShowSettings(false)}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
+                            >
+                                ✕
+                            </button>
                         </div>
                     </div>
-                    <button
-                        onClick={() => setIsGesturePaused((prev) => !prev)}
-                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow shrink-0 ${
-                            isGesturePaused
-                                ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                                : 'bg-green-700 hover:bg-green-800 text-white'
-                        }`}
-                    >
-                        {isGesturePaused ? 'Reanudar Detección' : 'Pausar Detección'}
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Columna izquierda: Cámara y gestos */}
-                    <div className="space-y-6">
-                        {/* Sección de cámara */}
-                        <section className="bg-white rounded-lg shadow p-4">
-                            <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                                📷 Cámara
-                            </h2>
-                            <CameraFeed onHandsDetected={handleHandsDetected} />
-                        </section>
-
-                        {/* Sección de gestos detectados */}
-                        <section className="bg-white rounded-lg shadow p-4">
-                            <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                                👋 Gestos detectados
-                            </h2>
-                            <GestureIndicator gestures={gestures} />
-                        </section>
-                    </div>
-
-                    {/* Columna derecha: Editor y toolbar */}
-                    <div className="space-y-6">
-                        {/* Sección del editor */}
-                        <section className="bg-white rounded-lg shadow p-4">
-                            <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                                🖼️ Editor de imágenes
-                            </h2>
-                            <ImageEditor
-                                onActionCompleted={setCurrentAction}
-                                hands={hands}
-                                currentAction={currentAction}
-                                gestures={gestures}
-                                isGesturePaused={isGesturePaused}
-                                onToggleGesturePause={() => setIsGesturePaused(p => !p)}
-                            />
-                        </section>
-
-                        {/* Toolbar con info */}
-                        <section>
-                            <Toolbar currentAction={currentAction} />
-                        </section>
-                    </div>
-                </div>
-            </main>
-
-            {/* Footer */}
-            <footer className="mt-12 py-6 bg-white border-t border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 text-center text-sm text-gray-600">
-                    <p>
-                        Hecho con ❤️ usando MediaPipe Hands + HTML5 Canvas
-                    </p>
-                    <p className="mt-1">
-                        Mové tus manos frente a la cámara para controlar el editor
-                    </p>
-                </div>
-            </footer>
+                )}
+            </div>
         </div>
     );
 }
