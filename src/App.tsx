@@ -2,8 +2,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { CameraFeed } from './components/CameraFeed';
 import { ImageEditor } from './components/ImageEditor';
 import { Toolbar } from './components/Toolbar';
+import { TutorialOverlay } from './components/TutorialOverlay';
 import { useGestureRecognition } from './hooks/useGestureRecognition';
 import { useHandCursor } from './hooks/useHandCursor';
+import { useTutorial } from './hooks/useTutorial';
 import { HandLandmarks, RecognizedGesture, EditorAction } from './types/hand';
 
 function App() {
@@ -52,6 +54,11 @@ function App() {
         gestures,
         isGesturePaused,
         viewportSize: { width: window.innerWidth, height: window.innerHeight },
+    });
+
+    const { visible, currentStep, stepIndex, totalSteps, completedSteps, showCheck, contextualHint, skipTutorial, restartTutorial } = useTutorial({
+        hands,
+        gestures,
     });
 
     useEffect(() => {
@@ -126,6 +133,17 @@ function App() {
         <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
             <CameraFeed onHandsDetected={handleHandsDetected} className="absolute inset-0 z-0" />
 
+            <TutorialOverlay
+                visible={visible}
+                currentStep={currentStep}
+                stepIndex={stepIndex}
+                totalSteps={totalSteps}
+                completedSteps={completedSteps}
+                showCheck={showCheck}
+                contextualHint={contextualHint}
+                onSkip={skipTutorial}
+            />
+
             <div className="pointer-events-none absolute inset-0 z-10">
                 <div className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur">
                     {isGesturePaused ? 'Pausa' : 'Live'}
@@ -169,6 +187,12 @@ function App() {
                                 className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
                             >
                                 ✕
+                            </button>
+                            <button
+                                onClick={restartTutorial}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
+                            >
+                                ↺
                             </button>
                         </div>
                     </div>
