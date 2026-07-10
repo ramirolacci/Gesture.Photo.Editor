@@ -182,8 +182,10 @@ export function useHandTracking(options: UseHandTrackingOptions) {
 
             // Configurar canvas con mismo tamaño que video
             if (canvasRef.current && videoRef.current) {
-                canvasRef.current.width = videoRef.current.videoWidth;
-                canvasRef.current.height = videoRef.current.videoHeight;
+                const videoWidth = videoRef.current.videoWidth || 640;
+                const videoHeight = videoRef.current.videoHeight || 480;
+                canvasRef.current.width = videoWidth;
+                canvasRef.current.height = videoHeight;
             }
 
             let lastProcessTime = 0;

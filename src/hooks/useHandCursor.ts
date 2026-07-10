@@ -85,7 +85,19 @@ export function useHandCursor({
         }
 
         const hand = hands[0];
-        const gesture = gestures.find((g) => g.hand === hand.handedness) || gestures[0];
+        if (!hand?.landmarks?.length) {
+            targetPositionRef.current = null;
+            smoothedPositionRef.current = null;
+            setCursorPosition(null);
+            setIsVisible(false);
+            setIsDrawing(false);
+            setIsErasing(false);
+            setIsMoving(false);
+            return;
+        }
+
+        const gesture = gestures.find((g) => g.hand === hand.handedness) ?? gestures[0];
+        const gestureType = gesture?.type ?? 'NONE';
         const indexTip = hand.landmarks[8];
 
         if (!indexTip) {
@@ -105,9 +117,9 @@ export function useHandCursor({
         };
 
         targetPositionRef.current = nextPosition;
-        setIsDrawing(gesture.type === 'PINCH');
-        setIsErasing(gesture.type === 'PEACE');
-        setIsMoving(gesture.type === 'POINT');
+        setIsDrawing(gestureType === 'PINCH');
+        setIsErasing(gestureType === 'PEACE');
+        setIsMoving(gestureType === 'POINT');
     }, [hands, gestures, isGesturePaused, size.height, size.width]);
 
     return {
