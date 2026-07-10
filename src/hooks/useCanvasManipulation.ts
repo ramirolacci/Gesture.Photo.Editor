@@ -68,6 +68,7 @@ interface UseCanvasManipulationOptions {
     swipeSensitivity?: number;
     minPinchDistance?: number;
     maxPinchDistance?: number;
+    virtualPointerPos?: { x: number; y: number } | null;
 }
 
 export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
@@ -83,6 +84,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         swipeSensitivity = 0.15,
         minPinchDistance = 0.08,
         maxPinchDistance = 0.45,
+        virtualPointerPos = null,
     } = options;
 
     const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
@@ -119,6 +121,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const targetPosRef = useRef<{ x: number; y: number } | null>(null);
     const smoothedPosRef = useRef<{ x: number; y: number } | null>(null);
     const animationFrameIdRef = useRef<number | null>(null);
+    const virtualPointerPosRef = useRef<{ x: number; y: number } | null>(virtualPointerPos);
 
     // Gesture drawing flags
     const isPinchingRef = useRef(false);
@@ -657,9 +660,25 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     // ─── Hand tracking → RAF flags ────────────────────────────────────────────
 
     useEffect(() => {
+        virtualPointerPosRef.current = virtualPointerPos;
+    }, [virtualPointerPos]);
+
+    useEffect(() => {
         handsRef.current = hands;
 
-        if (isGesturePaused || hands.length === 0 || gestures.length === 0) {
+        if (isGesturePaused) {
+            targetPosRef.current = null;
+            isPinchingRef.current = false;
+            isEraserRef.current = false;
+            return;
+        }
+
+        if (virtualPointerPosRef.current) {
+            targetPosRef.current = { ...virtualPointerPosRef.current };
+            return;
+        }
+
+        if (hands.length === 0 || gestures.length === 0) {
             targetPosRef.current = null;
             isPinchingRef.current = false;
             isEraserRef.current = false;
@@ -699,7 +718,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         isPinchingRef.current = localIsPinching;
         isEraserRef.current = gesture.type === 'PEACE';
-    }, [hands, gestures, isGesturePaused, pinchSensitivity]);
+    }, [hands, gestures, isGesturePaused, pinchSensitivity, virtualPointerPos]);
 
     // ─── Gesture actions (Thumbs Up / Swipe / Opacity) ────────────────────────
 
@@ -797,7 +816,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         const loop = () => {
             const canvas = fabricCanvasRef.current;
-            const target = targetPosRef.current;
+            const target = virtualPointerPosRef.current ?? targetPosRef.current;
 
             if (!canvas) {
                 animationFrameIdRef.current = requestAnimationFrame(loop);

@@ -10,6 +10,8 @@ interface ImageEditorProps {
     gestures?: RecognizedGesture[];
     isGesturePaused?: boolean;
     onToggleGesturePause?: () => void;
+    handCursorPosition?: { x: number; y: number } | null;
+    handCursorState?: { isVisible: boolean; isDrawing: boolean; isErasing: boolean; isMoving: boolean };
 }
 
 interface Toast {
@@ -26,6 +28,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     gestures = [],
     isGesturePaused = false,
     onToggleGesturePause,
+    handCursorPosition = null,
+    handCursorState,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,6 +76,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         swipeSensitivity,
         minPinchDistance,
         maxPinchDistance,
+        virtualPointerPos: handCursorPosition,
     });
 
     useEffect(() => {
@@ -110,22 +115,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
     const canvasWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const canvasHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
-    const isShapeTool = ['DRAW_RECT', 'DRAW_CIRCLE', 'DRAW_LINE', 'DRAW_TRIANGLE', 'DRAW_STAR', 'DRAW_POLYGON'].includes(currentTool);
+    const cursorPosition = handCursorPosition ?? pointerPos;
+    const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
+    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : '#ef4444';
 
     return (
         <div className={`relative h-screen w-screen overflow-hidden ${className}`}>
             <div className="absolute inset-0">
                 <canvas ref={canvasRef} className="block h-screen w-screen" />
-                {pointerPos && !isGesturePaused && (
+                {showCursor && cursorPosition && (
                     <div
-                        className={`pointer-events-none absolute flex items-center justify-center rounded-full transition-none ${currentTool === 'SELECT_ERASER' ? 'border-2 border-red-500 bg-red-100/50' : isShapeTool ? 'border-2 border-amber-500 bg-amber-100/50' : 'border-2 border-indigo-500 bg-indigo-100/50'}`}
+                        className="pointer-events-none absolute flex items-center justify-center rounded-full border-2 transition-none"
                         style={{
-                            left: `${(pointerPos.x / canvasWidth) * 100}%`,
-                            top: `${(pointerPos.y / canvasHeight) * 100}%`,
+                            left: `${(cursorPosition.x / canvasWidth) * 100}%`,
+                            top: `${(cursorPosition.y / canvasHeight) * 100}%`,
                             width: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 20)}px` : `${Math.max(brushSize + 8, 14)}px`,
                             height: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 20)}px` : `${Math.max(brushSize + 8, 14)}px`,
                             transform: 'translate(-50%, -50%)',
                             zIndex: 100,
+                            borderColor: cursorColor,
+                            backgroundColor: `${cursorColor}22`,
+                            boxShadow: `0 0 0 2px ${cursorColor}40`,
                         }}
                     >
                         <div
@@ -133,7 +143,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                             style={{
                                 width: `${Math.min(brushSize, 12)}px`,
                                 height: `${Math.min(brushSize, 12)}px`,
-                                backgroundColor: currentTool === 'SELECT_ERASER' ? '#ef4444' : isShapeTool ? '#f59e0b' : brushColor,
+                                backgroundColor: cursorColor,
                             }}
                         />
                     </div>

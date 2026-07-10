@@ -3,6 +3,7 @@ import { CameraFeed } from './components/CameraFeed';
 import { ImageEditor } from './components/ImageEditor';
 import { Toolbar } from './components/Toolbar';
 import { useGestureRecognition } from './hooks/useGestureRecognition';
+import { useHandCursor } from './hooks/useHandCursor';
 import { HandLandmarks, RecognizedGesture, EditorAction } from './types/hand';
 
 function App() {
@@ -38,6 +39,19 @@ function App() {
         hands,
         onGestureDetected: handleGestureDetected,
         debounceMs: 350,
+    });
+
+    const {
+        cursorPosition: handCursorPosition,
+        isVisible: isHandCursorVisible,
+        isDrawing,
+        isErasing,
+        isMoving,
+    } = useHandCursor({
+        hands,
+        gestures,
+        isGesturePaused,
+        viewportSize: { width: window.innerWidth, height: window.innerHeight },
     });
 
     useEffect(() => {
@@ -129,6 +143,8 @@ function App() {
                     gestures={gestures}
                     isGesturePaused={isGesturePaused}
                     onToggleGesturePause={() => setIsGesturePaused((prev) => !prev)}
+                    handCursorPosition={handCursorPosition}
+                    handCursorState={{ isVisible: isHandCursorVisible, isDrawing, isErasing, isMoving }}
                 />
 
                 <Toolbar currentAction={currentAction} isVisible={showToolbar} />
