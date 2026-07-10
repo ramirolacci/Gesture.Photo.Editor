@@ -3,6 +3,8 @@ import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
 import { useGestureCommands } from '../hooks/useGestureCommands';
 import { RadialMenu } from './RadialMenu';
+import { ColorWheel } from './ColorWheel';
+import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
 import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
@@ -60,6 +62,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         selectTool,
         pointerPos,
         brushSize,
+        setBrushColor,
+        setBrushSize,
         loadImage,
         saveProject,
         loadProject,
@@ -83,6 +87,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         hands,
         gestures,
         isGesturePaused,
+    });
+
+    const { color: twoHandColor, size: twoHandSize, visible: twoHandSelectorVisible } = useTwoHandGestures({
+        hands,
+        gestures,
+        viewportSize: { width: window.innerWidth, height: window.innerHeight },
     });
 
     useEffect(() => {
@@ -164,7 +174,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const canvasHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
     const cursorPosition = handCursorPosition ?? pointerPos;
     const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
-    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : '#ef4444';
+    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : '#ef4444');
+
+    useEffect(() => {
+        if (twoHandSelectorVisible) {
+            setBrushColor(twoHandColor);
+            setBrushSize(twoHandSize);
+        }
+    }, [setBrushColor, setBrushSize, twoHandColor, twoHandSize, twoHandSelectorVisible]);
 
     return (
         <div className={`relative h-screen w-screen overflow-hidden ${className}`}>
@@ -198,6 +215,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             </div>
 
             <div className="pointer-events-none absolute inset-0 z-10">
+                <ColorWheel color={twoHandColor} size={twoHandSize} visible={twoHandSelectorVisible} />
                 {toolFeedback && (
                     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                         <div className="rounded-full border border-white/20 bg-black/70 px-4 py-3 text-3xl font-semibold text-white shadow-2xl backdrop-blur">
@@ -226,6 +244,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 {toolBadgeVisible && (
                     <div className="pointer-events-none absolute right-4 top-14 rounded-full border border-white/15 bg-black/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/70 opacity-70 backdrop-blur">
                         {currentTool === 'SELECT_BRUSH' ? '🖌️ Pincel' : currentTool === 'SELECT_ERASER' ? '🧹 Borrador' : currentTool === 'SELECT_MOVE' ? '✋ Mover' : currentTool === 'SELECT_ZOOM' ? '🔍 Zoom' : '⋯'}
+                    </div>
+                )}
+
+                {twoHandSelectorVisible && (
+                    <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
+                        Color {Math.round(twoHandSize)}px
                     </div>
                 )}
             </div>
