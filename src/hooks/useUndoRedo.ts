@@ -36,8 +36,10 @@ export function useUndoRedo({
     const lastActionRef = useRef(0);
     const lastAngleRef = useRef<number | null>(null);
     const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+    const actionCandidateRef = useRef<{ action: string | null; enteredAt: number | null }>({ action: null, enteredAt: null });
     const quickMenuTimerRef = useRef<number | null>(null);
     const toastTimerRef = useRef<number | null>(null);
+    const thumbHoldRef = useRef<number | null>(null);
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         setToastMessage(message);
@@ -83,24 +85,34 @@ export function useUndoRedo({
         const indexY = indexTip.y;
         const angle = Math.atan2(indexTip.y - wrist.y, indexTip.x - wrist.x);
 
-        if (indexX < 0.12) {
-            void runCommand({ id: 'undo', label: 'Deshecho', execute: undo });
-            return;
-        }
+        // Region-based quick commands: require holding pointer in region for a short time to avoid accidental triggers
+        const HOLD_MS = 450;
+        let desiredAction: string | null = null;
+        if (indexX < 0.12) desiredAction = 'undo';
+        else if (indexX > 0.88) desiredAction = 'redo';
+        else if (indexY < 0.12) desiredAction = 'export';
+        else if (indexY > 0.88) desiredAction = 'clear';
 
-        if (indexX > 0.88) {
-            void runCommand({ id: 'redo', label: 'Rehecho', execute: redo });
+        const now = Date.now();
+        if (desiredAction) {
+            const candidate = actionCandidateRef.current;
+            if (candidate.action === desiredAction && candidate.enteredAt && now - candidate.enteredAt > HOLD_MS) {
+                // Execute once and reset
+                if (desiredAction === 'undo') void runCommand({ id: 'undo', label: 'Deshecho', execute: undo });
+                else if (desiredAction === 'redo') void runCommand({ id: 'redo', label: 'Rehecho', execute: redo });
+                else if (desiredAction === 'export') void runCommand({ id: 'export', label: 'Exportado', execute: () => onQuickAction?.('export') });
+                else if (desiredAction === 'clear') void runCommand({ id: 'clear', label: 'Limpieza', execute: () => onQuickAction?.('clear') });
+                actionCandidateRef.current = { action: null, enteredAt: null };
+                return;
+            }
+            // start candidate timer
+            if (actionCandidateRef.current.action !== desiredAction) {
+                actionCandidateRef.current = { action: desiredAction, enteredAt: now };
+            }
+            // do not proceed further while waiting for hold
             return;
-        }
-
-        if (indexY < 0.12) {
-            void runCommand({ id: 'export', label: 'Exportado', execute: () => onQuickAction?.('export') });
-            return;
-        }
-
-        if (indexY > 0.88) {
-            void runCommand({ id: 'clear', label: 'Limpieza', execute: () => onQuickAction?.('clear') });
-            return;
+        } else {
+            actionCandidateRef.current = { action: null, enteredAt: null };
         }
 
         if (gesture === 'POINT' || gesture === 'OPEN_PALM') {
@@ -118,15 +130,26 @@ export function useUndoRedo({
         }
 
         const thumbDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-        if (thumbDistance < 0.06 && (gesture === 'PINCH' || gesture === 'POINT')) {
-            if (!quickMenuVisible) {
-                setQuickMenuVisible(true);
-                if (quickMenuTimerRef.current) {
-                    window.clearTimeout(quickMenuTimerRef.current);
+        // Require a short hold to open quick menu and increase threshold to reduce false positives
+        const QUICK_MENU_THRESHOLD = 0.09;
+        const QUICK_MENU_HOLD_MS = 220;
+        if ((gesture === 'PINCH' || gesture === 'POINT') && thumbDistance < QUICK_MENU_THRESHOLD) {
+            const now2 = Date.now();
+            if (thumbHoldRef.current === null) {
+                thumbHoldRef.current = now2;
+            } else if (now2 - thumbHoldRef.current > QUICK_MENU_HOLD_MS) {
+                if (!quickMenuVisible) {
+                    setQuickMenuVisible(true);
+                    if (quickMenuTimerRef.current) {
+                        window.clearTimeout(quickMenuTimerRef.current);
+                    }
+                    quickMenuTimerRef.current = window.setTimeout(() => setQuickMenuVisible(false), 2200);
                 }
-                quickMenuTimerRef.current = window.setTimeout(() => setQuickMenuVisible(false), 2200);
+                // keep menu until interaction
             }
             return;
+        } else {
+            thumbHoldRef.current = null;
         }
 
         if (quickMenuVisible) {

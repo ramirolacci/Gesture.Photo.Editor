@@ -11,6 +11,7 @@ interface GalleryEntry {
 interface UseAutoSaveOptions {
     hands: HandLandmarks[];
     gestures: RecognizedGesture[];
+    isGesturePaused?: boolean;
     getProjectData: () => string | null;
     restoreProject: (json: string) => Promise<void> | void;
     onToast?: (message: string, type: 'success' | 'info' | 'warning') => void;
@@ -25,6 +26,7 @@ const AUTO_SAVE_MS = 5 * 60 * 1000;
 export function useAutoSave({
     hands,
     gestures,
+    isGesturePaused = false,
     getProjectData,
     restoreProject,
     onToast,
@@ -99,18 +101,34 @@ export function useAutoSave({
         if (!projectData) return;
         const base64 = btoa(unescape(encodeURIComponent(projectData)));
         try {
-            if (navigator.share) {
+            if (navigator.share && navigator.userActivation?.hasBeenActive) {
                 await navigator.share({
                     title: 'Proyecto gesture editor',
                     text: 'Proyecto compartido desde Gesture Photo Editor',
                 });
-            } else if (navigator.clipboard) {
+                await onShare?.();
+                return;
+            }
+
+            if (navigator.clipboard) {
                 await navigator.clipboard.writeText(base64);
                 notify('📋 Base64 copiado al portapapeles', 'success');
+                await onShare?.();
+                return;
             }
-            await onShare?.();
+
+            notify('⚠️ No hay método de compartido disponible', 'warning');
         } catch (error) {
             console.error('Share failed', error);
+            if (navigator.clipboard) {
+                try {
+                    await navigator.clipboard.writeText(base64);
+                    notify('📋 Base64 copiado al portapapeles', 'success');
+                    return;
+                } catch {
+                    // ignore fallback failure
+                }
+            }
             notify('⚠️ No se pudo compartir', 'warning');
         }
     }, [getProjectData, notify, onShare]);
@@ -130,6 +148,7 @@ export function useAutoSave({
     }, [saveNow]);
 
     useEffect(() => {
+        if (isGesturePaused) return;
         if (!hands.length) {
             thumbsHoldStartRef.current = null;
             signaturePointsRef.current = [];
@@ -195,7 +214,7 @@ export function useAutoSave({
         }
 
         if (leftGesture === 'PINCH' && rightGesture === 'PINCH' && leftIndex && rightIndex && Math.abs(leftIndex.x - rightIndex.x) < 0.2) {
-            void shareCurrent();
+            notify('✋ Gestos de compartir detectados, utiliza el botón de compartir para continuar', 'info');
         }
 
         if (rightIndex.y > 0.88 && !swipeStartRef.current) {
@@ -204,7 +223,7 @@ export function useAutoSave({
             openGallery();
             swipeStartRef.current = null;
         }
-    }, [hands, gestures, notify, onExport, openGallery, saveNow, shareCurrent]);
+    }, [hands, gestures, notify, onExport, openGallery, saveNow, shareCurrent, isGesturePaused]);
 
     return {
         galleryVisible,

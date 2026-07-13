@@ -1,10 +1,11 @@
 import { GestureType, Landmark } from '../types/hand';
-import { calculateDistance, FingerLandmarks } from './distanceCalculator';
+import { calculateDistance, calculateDistance2D, FingerLandmarks } from './distanceCalculator';
 
 /**
  * Umbral para detectar si dos puntos están "juntos"
  */
-const PINCH_THRESHOLD = 0.05;
+const PINCH_THRESHOLD = 0.16;
+const PINCH_DEPTH_THRESHOLD = 0.10;
 
 /**
  * Detecta gesto de PINCH (pulgar + índice juntos)
@@ -13,8 +14,11 @@ export function detectPinch(landmarks: Landmark[]): boolean {
     const thumbTip = landmarks[FingerLandmarks.THUMB_TIP];
     const indexTip = landmarks[FingerLandmarks.INDEX_TIP];
 
-    const distance = calculateDistance(thumbTip, indexTip);
-    return distance < PINCH_THRESHOLD;
+    if (!thumbTip || !indexTip) return false;
+
+    const distance2D = calculateDistance2D(thumbTip, indexTip);
+    const depthDifference = Math.abs(thumbTip.z - indexTip.z);
+    return distance2D < PINCH_THRESHOLD && depthDifference < PINCH_DEPTH_THRESHOLD;
 }
 
 /**

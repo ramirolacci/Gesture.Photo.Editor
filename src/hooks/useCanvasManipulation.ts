@@ -34,6 +34,26 @@ const createRegularPolygonPoints = (centerX: number, centerY: number, sides: num
     return results;
 };
 
+const toRgba = (color: string, alpha: number) => {
+    const normalized = color.trim();
+    if (!normalized.startsWith('#')) return normalized;
+
+    const hex = normalized.replace('#', '');
+    const fullHex = hex.length === 3
+        ? hex.split('').map((char) => char + char).join('')
+        : hex;
+
+    if (fullHex.length !== 6) return normalized;
+
+    const value = Number.parseInt(fullHex, 16);
+    if (Number.isNaN(value)) return normalized;
+
+    const r = (value >> 16) & 255;
+    const g = (value >> 8) & 255;
+    const b = value & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 export type FilterType = 'grayscale' | 'invert' | 'blur' | 'brightness_up' | 'brightness_down' | 'contrast_up' | 'contrast_down';
 
 export interface LayerInfo {
@@ -99,6 +119,8 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const brushColorRef = useRef('#4f46e5');
     const [brushSize, setBrushSizeState] = useState(5);
     const brushSizeRef = useRef(5);
+    const [isHighlightMode, setIsHighlightModeState] = useState(false);
+    const isHighlightModeRef = useRef(false);
 
     // Layers state
     const [layers, setLayers] = useState<LayerInfo[]>([]);
@@ -127,6 +149,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const isPinchingRef = useRef(false);
     const wasPinchingRef = useRef(false);
     const isEraserRef = useRef(false);
+    const pinchStartRef = useRef<number | null>(null);
 
     // Drawing tracking
     const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -289,16 +312,44 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         brushSizeRef.current = clamped;
     }, []);
 
+    const getActiveDrawingLayer = useCallback((canvas: fabric.Canvas) => {
+        const current = canvas.getActiveObject();
+        if (current && (current as any).layerType === 'drawing') {
+            return current;
+        }
+
+        const fallback = canvas.getObjects().find((obj) => (obj as any).layerType === 'drawing');
+        if (fallback) {
+            canvas.setActiveObject(fallback);
+            canvas.requestRenderAll();
+        }
+        return fallback ?? null;
+    }, []);
+
+    const setHighlightMode = useCallback((active: boolean) => {
+        setIsHighlightModeState(active);
+        isHighlightModeRef.current = active;
+    }, []);
+
     const selectTool = useCallback((tool: EditorAction) => {
         setCurrentTool(tool);
         currentToolRef.current = tool;
 
         const canvas = fabricCanvasRef.current;
         if (canvas) {
-            if (tool !== 'SELECT_MOVE') {
+            const preserveDrawingLayer = tool === 'SELECT_BRUSH' || tool === 'SELECT_ERASER';
+
+            if (!preserveDrawingLayer) {
                 canvas.discardActiveObject();
                 canvas.requestRenderAll();
+            } else {
+                const drawingLayer = getActiveDrawingLayer(canvas);
+                if (drawingLayer) {
+                    canvas.setActiveObject(drawingLayer);
+                    canvas.requestRenderAll();
+                }
             }
+
             canvas.getObjects().forEach((obj) => {
                 obj.selectable = tool === 'SELECT_MOVE';
                 obj.hoverCursor = tool === 'SELECT_MOVE' ? 'move' : 'crosshair';
@@ -327,7 +378,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         };
         showToast?.(`Herramienta activa: ${toolLabels[tool] || tool}`, 'info');
         if (onActionCompleted) onActionCompleted(tool);
-    }, [onActionCompleted, syncLayers, showToast]);
+    }, [getActiveDrawingLayer, onActionCompleted, syncLayers, showToast]);
 
     // ─── Canvas initialization ─────────────────────────────────────────────────
 
@@ -485,25 +536,30 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             const activeObj = canvas.getActiveObject();
 
             if (tool === 'SELECT_BRUSH' || tool === 'SELECT_ERASER') {
-                if (activeObj && (activeObj as any).layerType === 'drawing') {
+                const drawingLayer = activeObj && (activeObj as any).layerType === 'drawing'
+                    ? activeObj
+                    : getActiveDrawingLayer(canvas);
+
+                if (drawingLayer && (drawingLayer as any).layerType === 'drawing') {
                     // Snapshot before drawing stroke begins
                     pushSnapshot(tool === 'SELECT_ERASER' ? 'Borrador aplicado' : 'Pincelada');
                     isMouseDrawingRef.current = true;
-                    const hiddenCtx = (activeObj as any).hiddenCtx;
+                    const hiddenCtx = (drawingLayer as any).hiddenCtx;
                     if (hiddenCtx) {
-                        const matrix = activeObj.calcTransformMatrix();
+                        const matrix = drawingLayer.calcTransformMatrix();
                         const invertMatrix = fabric.util.invertTransform(matrix);
                         const localPt = fabric.util.transformPoint(new fabric.Point(pointer.x, pointer.y), invertMatrix);
-                        const drawX = localPt.x + activeObj.width! / 2;
-                        const drawY = localPt.y + activeObj.height! / 2;
+                        const drawX = localPt.x + drawingLayer.width! / 2;
+                        const drawY = localPt.y + drawingLayer.height! / 2;
 
                         if (tool === 'SELECT_ERASER') {
                             hiddenCtx.globalCompositeOperation = 'destination-out';
                             hiddenCtx.lineWidth = brushSizeRef.current * 4;
                         } else {
                             hiddenCtx.globalCompositeOperation = 'source-over';
-                            hiddenCtx.strokeStyle = brushColorRef.current;
-                            hiddenCtx.lineWidth = brushSizeRef.current;
+                            const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
+                            hiddenCtx.strokeStyle = isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.35) : brushColorRef.current;
+                            hiddenCtx.lineWidth = strokeWidth;
                         }
                         hiddenCtx.lineCap = 'round';
                         hiddenCtx.lineJoin = 'round';
@@ -575,14 +631,18 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
             if (isMouseDrawingRef.current) {
                 if ((tool === 'SELECT_BRUSH' || tool === 'SELECT_ERASER') && lastDrawPosRef.current) {
-                    if (activeObj && (activeObj as any).layerType === 'drawing') {
-                        const hiddenCtx = (activeObj as any).hiddenCtx;
+                    const drawingLayer = activeObj && (activeObj as any).layerType === 'drawing'
+                        ? activeObj
+                        : getActiveDrawingLayer(canvas);
+
+                    if (drawingLayer && (drawingLayer as any).layerType === 'drawing') {
+                        const hiddenCtx = (drawingLayer as any).hiddenCtx;
                         if (hiddenCtx) {
-                            const matrix = activeObj.calcTransformMatrix();
+                            const matrix = drawingLayer.calcTransformMatrix();
                             const invertMatrix = fabric.util.invertTransform(matrix);
                             const localPt = fabric.util.transformPoint(new fabric.Point(pointer.x, pointer.y), invertMatrix);
-                            const drawX = localPt.x + activeObj.width! / 2;
-                            const drawY = localPt.y + activeObj.height! / 2;
+                            const drawX = localPt.x + drawingLayer.width! / 2;
+                            const drawY = localPt.y + drawingLayer.height! / 2;
 
                             hiddenCtx.lineTo(drawX, drawY);
                             hiddenCtx.stroke();
@@ -655,7 +715,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             canvas.off('mouse:move', onMouseMove);
             canvas.off('mouse:up', onMouseUp);
         };
-    }, [syncLayers, pushSnapshot, commitHead]);
+}, [getActiveDrawingLayer, syncLayers, pushSnapshot, commitHead]);
 
     // ─── Hand tracking → RAF flags ────────────────────────────────────────────
 
@@ -716,6 +776,11 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             localIsPinching = gesture.type === 'PINCH';
         }
 
+        // track pinch start time for short hold requirement
+        if (localIsPinching && !isPinchingRef.current) {
+            pinchStartRef.current = Date.now();
+        }
+        if (!localIsPinching) pinchStartRef.current = null;
         isPinchingRef.current = localIsPinching;
         isEraserRef.current = gesture.type === 'PEACE';
     }, [hands, gestures, isGesturePaused, pinchSensitivity, virtualPointerPos]);
@@ -874,8 +939,9 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 initialObjAngleRef.current = null;
             }
 
-            // Brush size mapping from wrist distance if not pinching with both hands:
-            if (!isGesturePaused && currentHands.length >= 2 && !activeObj) {
+            // Brush size mapping from wrist distance when two hands are present.
+            // Allow mapping while drawing even if a drawing layer (activeObj) exists — this controls brush thickness.
+            if (!isGesturePaused && currentHands.length >= 2) {
                 const isBothPinching =
                     gestures.length >= 2 &&
                     gestures.some(g => g.hand === currentHands[0].handedness && g.type === 'PINCH') &&
@@ -886,7 +952,10 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                     const w1 = currentHands[1].landmarks[0];
                     if (w0 && w1) {
                         const dist = Math.sqrt((w0.x - w1.x) ** 2 + (w0.y - w1.y) ** 2);
-                        const mapped = 1 + ((dist - 0.05) / (0.8 - 0.05)) * 49;
+                        // apply a small deadzone so tiny head/hand movement doesn't change brush size
+                        const DEADZONE = 0.02;
+                        const effectiveDist = Math.max(0, dist - DEADZONE);
+                        const mapped = 1 + ((effectiveDist - 0.05) / (0.8 - 0.05)) * 49;
                         const targetSize = Math.min(50, Math.max(1, mapped));
                         smoothedBrushSize += (targetSize - smoothedBrushSize) * BRUSH_SIZE_LERP;
                         const rounded = Math.round(smoothedBrushSize);
@@ -915,14 +984,18 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 if (tool === 'SELECT_BRUSH' || tool === 'SELECT_ERASER') {
                     const mode = isPinching ? 'brush' : isErasing ? 'eraser' : 'none';
                     if (mode !== 'none') {
-                        if (activeObj && (activeObj as any).layerType === 'drawing') {
-                            const hiddenCtx = (activeObj as any).hiddenCtx;
+                        const drawingLayer = activeObj && (activeObj as any).layerType === 'drawing'
+                            ? activeObj
+                            : getActiveDrawingLayer(canvas);
+
+                        if (drawingLayer && (drawingLayer as any).layerType === 'drawing') {
+                            const hiddenCtx = (drawingLayer as any).hiddenCtx;
                             if (hiddenCtx) {
-                                const matrix = activeObj.calcTransformMatrix();
+                                const matrix = drawingLayer.calcTransformMatrix();
                                 const invertMatrix = fabric.util.invertTransform(matrix);
                                 const localPt = fabric.util.transformPoint(new fabric.Point(pos.x, pos.y), invertMatrix);
-                                const drawX = localPt.x + activeObj.width! / 2;
-                                const drawY = localPt.y + activeObj.height! / 2;
+                                const drawX = localPt.x + drawingLayer.width! / 2;
+                                const drawY = localPt.y + drawingLayer.height! / 2;
 
                                 if (mode === 'eraser') {
                                     hiddenCtx.globalCompositeOperation = 'destination-out';
@@ -936,18 +1009,26 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                                 hiddenCtx.lineJoin = 'round';
 
                                 if (!lastDrawPosRef.current) {
-                                    // First contact – take snapshot
-                                    if (!wasPinchingRef.current) pushSnapshot(mode === 'eraser' ? 'Borrador (gesto)' : 'Pincelada (gesto)');
-                                    hiddenCtx.beginPath();
-                                    hiddenCtx.moveTo(drawX, drawY);
+                                    const PINCH_HOLD_MS = 120;
+                                    const now = Date.now();
+                                    if (!pinchStartRef.current || now - pinchStartRef.current < PINCH_HOLD_MS) {
+                                        // not held long enough yet, skip initial contact
+                                    } else {
+                                        // First contact – take snapshot
+                                        if (!wasPinchingRef.current) pushSnapshot(mode === 'eraser' ? 'Borrador (gesto)' : 'Pincelada (gesto)');
+                                        hiddenCtx.beginPath();
+                                        hiddenCtx.moveTo(drawX, drawY);
+                                        lastDrawPosRef.current = { x: drawX, y: drawY };
+                                    }
                                 } else {
                                     hiddenCtx.lineTo(drawX, drawY);
                                     hiddenCtx.stroke();
                                     hiddenCtx.beginPath();
                                     hiddenCtx.moveTo(drawX, drawY);
                                 }
-                                lastDrawPosRef.current = { x: drawX, y: drawY };
-                                (activeObj as any).setElement((activeObj as any).hiddenCanvas);
+                                // update lastDrawPos if we had an established contact
+                                if (lastDrawPosRef.current) lastDrawPosRef.current = { x: drawX, y: drawY };
+                                (drawingLayer as any).setElement((drawingLayer as any).hiddenCanvas);
                                 canvas.requestRenderAll();
                             }
                         }
@@ -1106,7 +1187,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         animationFrameIdRef.current = requestAnimationFrame(loop);
         return () => { if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current); };
-    }, [isGesturePaused, gestures, setBrushSize, pushSnapshot, commitHead, syncLayers]);
+    }, [getActiveDrawingLayer, isGesturePaused, gestures, setBrushSize, pushSnapshot, commitHead, syncLayers]);
 
     // ─── Layer operations ─────────────────────────────────────────────────────
 
@@ -1657,6 +1738,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         currentTool, selectTool,
         brushColor, setBrushColor,
         brushSize, setBrushSize,
+        isHighlightMode, setHighlightMode,
         pointerPos,
         projectName, setProjectName,
         lastAutoSave,

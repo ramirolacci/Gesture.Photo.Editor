@@ -72,9 +72,31 @@ export function useHandTracking(options: UseHandTrackingOptions) {
                     ctx.save();
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                    // Dibujar imagen del video
+                    // Dibujar imagen del video con proporción preservada en pantalla completa
+                    const videoWidth = videoRef.current.videoWidth;
+                    const videoHeight = videoRef.current.videoHeight;
+                    const canvasRatio = canvas.width / canvas.height;
+                    const videoRatio = videoWidth / videoHeight;
+
+                    let sx = 0;
+                    let sy = 0;
+                    let sWidth = videoWidth;
+                    let sHeight = videoHeight;
+
+                    if (videoRatio > canvasRatio) {
+                        sWidth = videoHeight * canvasRatio;
+                        sx = (videoWidth - sWidth) / 2;
+                    } else {
+                        sHeight = videoWidth / canvasRatio;
+                        sy = (videoHeight - sHeight) / 2;
+                    }
+
                     ctx.drawImage(
                         videoRef.current,
+                        sx,
+                        sy,
+                        sWidth,
+                        sHeight,
                         0,
                         0,
                         canvas.width,

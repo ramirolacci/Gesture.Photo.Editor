@@ -34,7 +34,11 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
     return (
         <div className={`relative h-screen w-screen overflow-hidden bg-black ${className}`}>
             <video ref={videoRef} className="hidden" playsInline muted autoPlay />
-            <canvas ref={canvasRef} className={showPreview ? 'h-screen w-screen block' : 'hidden'} />
+            <canvas
+                ref={canvasRef}
+                className={showPreview ? 'absolute inset-0 block w-full h-full object-cover' : 'hidden'}
+                style={showPreview ? { objectFit: 'cover' } : undefined}
+            />
             {!showPreview && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black text-[11px] font-semibold uppercase tracking-[0.25em] text-white/60">
                     Modo pantalla

@@ -14,6 +14,9 @@ export function useGestureRecognition(options: UseGestureRecognitionOptions) {
     const [gestures, setGestures] = useState<RecognizedGesture[]>([]);
     const [lastAction, setLastAction] = useState<EditorAction>('NONE');
     const lastGestureTime = useRef<Record<string, number>>({});
+    const lastDetectedPerHand = useRef<Record<string, { type: string; since: number }>>({});
+    const lastStablePerHand = useRef<Record<string, string>>({});
+    const HOLD_MS = 400;
 
     // Procesar gestos cuando cambian las manos detectadas
     useEffect(() => {
@@ -22,35 +25,53 @@ export function useGestureRecognition(options: UseGestureRecognitionOptions) {
             return;
         }
 
+        const now = Date.now();
         const recognizedGestures: RecognizedGesture[] = hands.map((hand) => {
             const { type, confidence } = recognizeGesture(hand.landmarks, hand.handedness);
+
+            // track when a type first appears for this hand
+            const key = hand.handedness;
+            const prev = lastDetectedPerHand.current[key];
+            if (!prev || prev.type !== type) {
+                lastDetectedPerHand.current[key] = { type, since: now };
+            }
 
             return {
                 type,
                 confidence,
                 hand: hand.handedness,
-                timestamp: Date.now(),
+                timestamp: now,
             };
         });
 
+        // always update raw gestures so UI can show immediate detections
         setGestures(recognizedGestures);
 
-        // Procesar acciones para cada gesto
+        // Now check for stable gestures per hand and only notify when held for HOLD_MS
         recognizedGestures.forEach((gesture) => {
+            const key = gesture.hand;
+            const detected = lastDetectedPerHand.current[key];
+            if (!detected) return;
+            const timeSince = now - (detected.since || now);
+
+            // require minimal confidence and a hold time to consider stable
+            if (gesture.confidence < 0.5) return;
+            if (timeSince < HOLD_MS) return;
+
+            // if already marked stable for this hand and same, debounce by gesture key
+            if (lastStablePerHand.current[key] === gesture.type) return;
+
+            lastStablePerHand.current[key] = gesture.type;
+
             const gestureKey = `${gesture.hand}-${gesture.type}`;
-            const now = Date.now();
             const lastTime = lastGestureTime.current[gestureKey] || 0;
 
-            // Debounce: solo procesar si pasó suficiente tiempo
             if (now - lastTime < debounceMs) return;
-
             lastGestureTime.current[gestureKey] = now;
 
             const action = GESTURE_TO_ACTION[gesture.type] as EditorAction;
-
             if (action !== 'NONE') {
                 setLastAction(action);
-
                 if (onGestureDetected) {
                     onGestureDetected(gesture, action);
                 }

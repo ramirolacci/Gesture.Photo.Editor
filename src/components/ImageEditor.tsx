@@ -50,7 +50,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [toolFeedback, setToolFeedback] = useState<string | null>(null);
     const [toolBadgeVisible, setToolBadgeVisible] = useState(false);
-    const [pinchSensitivity, setPinchSensitivity] = useState(0.05);
+    const [pinchSensitivity, setPinchSensitivity] = useState(0.14);
     const [swipeSensitivity, setSwipeSensitivity] = useState(0.15);
     const [minPinchDistance, setMinPinchDistance] = useState(0.08);
     const [maxPinchDistance, setMaxPinchDistance] = useState(0.45);
@@ -69,8 +69,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         pointerPos,
         brushColor,
         brushSize,
+        isHighlightMode,
         setBrushColor,
         setBrushSize,
+        setHighlightMode,
         loadImage,
         loadProject,
         serializeCurrentProject,
@@ -139,6 +141,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const { galleryVisible, galleryProjects, lastSavedAt, closeGallery } = useAutoSave({
         hands,
         gestures,
+        isGesturePaused: isGesturePaused,
         getProjectData: () => serializeCurrentProject(),
         restoreProject: async (json) => {
             await loadProject(json);
@@ -298,17 +301,34 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 </div>
 
                 {toolBadgeVisible && (
-                    <div className="pointer-events-none absolute right-4 top-14 rounded-full border border-white/15 bg-black/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/70 opacity-70 backdrop-blur">
+                    <div className="pointer-events-none absolute right-4 top-14 rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-200 opacity-90 backdrop-blur">
                         {currentTool === 'SELECT_BRUSH' ? '🖌️ Pincel' : currentTool === 'SELECT_ERASER' ? '🧹 Borrador' : currentTool === 'SELECT_MOVE' ? '✋ Mover' : currentTool === 'SELECT_ZOOM' ? '🔍 Zoom' : '⋯'}
                     </div>
                 )}
 
-                <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur">
+                <div className="pointer-events-auto absolute left-4 top-20 z-20">
+                    <button
+                        onClick={() => onToggleGesturePause?.()}
+                        className="rounded-full border border-white/10 bg-black/55 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/70 backdrop-blur"
+                        title="Alternar gestos"
+                    >
+                        Presentación • {isGesturePaused ? 'Gestos desactivados' : 'Gestos activos'}
+                    </button>
+                </div>
+
+                <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-cyan-400/30 bg-black/80 px-3 py-2 shadow-[0_0_30px_rgba(34,211,238,0.2)] backdrop-blur">
                     <button
                         onClick={() => selectTool('SELECT_BRUSH')}
                         className={`rounded-full px-2 py-1 text-sm ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500/30 text-white' : 'bg-white/10 text-white/80'}`}
                     >
                         ✍️
+                    </button>
+                    <button
+                        onClick={() => setHighlightMode(!isHighlightMode)}
+                        className={`rounded-full px-2 py-1 text-sm ${isHighlightMode ? 'bg-amber-500/30 text-white' : 'bg-white/10 text-white/80'}`}
+                        title="Resaltar"
+                    >
+                        ✦
                     </button>
                     <div className="flex items-center gap-1">
                         {quickColors.map((color) => (
@@ -330,6 +350,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         className="w-24 accent-cyan-400"
                         title="Grosor"
                     />
+                    <button onClick={() => void clearCanvas()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80" title="Limpiar todo">🧹</button>
+                    <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80" title="Exportar PNG">⬇️</button>
                     <button onClick={() => void undo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↩</button>
                     <button onClick={() => void redo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↪</button>
                 </div>
@@ -409,7 +431,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                 <span>Pinch Sensitivity</span>
                                 <span>{pinchSensitivity.toFixed(3)}</span>
                             </div>
-                            <input type="range" min="0.02" max="0.10" step="0.005" value={pinchSensitivity} onChange={(e) => setPinchSensitivity(Number(e.target.value))} className="w-full accent-indigo-400" />
+                            <input type="range" min="0.06" max="0.25" step="0.005" value={pinchSensitivity} onChange={(e) => setPinchSensitivity(Number(e.target.value))} className="w-full accent-indigo-400" />
                         </div>
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2">
                             <div className="mb-1 flex justify-between">
@@ -421,6 +443,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         </div>
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2">
                             <button onClick={() => void clearCanvas()} className="w-full rounded-lg bg-white/10 px-3 py-2 text-left">🧽 Limpiar pantalla</button>
+                            <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">⬇️ Exportar PNG</button>
                             <button onClick={() => setIsSettingsOpen(false)} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">✓ Cerrar</button>
                         </div>
                     </div>
