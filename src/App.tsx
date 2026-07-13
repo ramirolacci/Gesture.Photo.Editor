@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { CameraFeed } from './components/CameraFeed';
-import { ImageEditor } from './components/ImageEditor';
+import { ImageEditor as AnnotationCanvas } from './components/ImageEditor';
 import { Toolbar } from './components/Toolbar';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { useGestureRecognition } from './hooks/useGestureRecognition';
@@ -146,14 +146,14 @@ function App() {
 
             <div className="pointer-events-none absolute inset-0 z-10">
                 <div className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur">
-                    {isGesturePaused ? 'Pausa' : 'Live'}
+                    {isGesturePaused ? 'Pausa' : 'Anotación en vivo'}
                 </div>
 
                 <div className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur">
-                    {currentAction === 'NONE' ? 'Idle' : currentAction.replace('SELECT_', '').replace('DRAW_', '')}
+                    {currentAction === 'NONE' ? 'Listo' : currentAction.replace('SELECT_', '').replace('DRAW_', '')}
                 </div>
 
-                <ImageEditor
+                <AnnotationCanvas
                     className="absolute inset-0 z-20"
                     onActionCompleted={setCurrentAction}
                     hands={hands}

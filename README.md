@@ -1,6 +1,6 @@
-# 🎨 Gesture Photo Editor
+# � Gesture Annotation
 
-Editor de imágenes web controlado por gestos de manos usando MediaPipe Hands y Fabric.js.
+Herramienta de anotación en vivo para videollamadas, clases y presentaciones, controlada por gestos de manos usando MediaPipe Hands y Fabric.js.
 
 ## 🚀 Setup rápido
 
@@ -24,13 +24,12 @@ Visitá http://localhost:5173
 
 1. **Activar la cámara**: Hacé click en "Activar Cámara"
 2. **Mostrá tus manos**: La app detectará automáticamente tus manos
-3. **Usá gestos para controlar el editor**:
-   - 👌 **Pinza** (pulgar + índice): Activar pincel
-   - 👆 **Señalar** (solo índice): Mover objetos
-   - ✋ **Mano abierta**: Desplazar canvas
+3. **Usá gestos para anotar sobre la pantalla**:
+   - 🤏 **Pinza** (pulgar + índice): Activar pincel
+   - ☝️ **Señalar** (solo índice): Mover anotaciones
    - ✌️ **Paz** (índice + medio): Borrador
    - ✊ **Puño**: Zoom
-   - 👍 **Pulgar arriba**: Aplicar filtro
+   - 👍 **Pulgar arriba**: Confirmar o seguir
 
 ## 🛠️ Tecnologías
 
@@ -38,7 +37,7 @@ Visitá http://localhost:5173
 - **Vite** (build tool)
 - **Tailwind CSS** (estilos)
 - **MediaPipe Hands** (detección de manos)
-- **Fabric.js** (canvas de edición)
+- **Fabric.js** (canvas de anotación)
 - **Fingerpose** (reconocimiento de gestos)
 
 ## 📁 Estructura del proyecto

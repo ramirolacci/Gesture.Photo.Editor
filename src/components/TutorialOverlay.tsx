@@ -29,7 +29,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
             <div className="pointer-events-auto w-[min(480px,calc(100vw-2rem))] rounded-[2rem] border border-white/15 bg-black/70 p-6 text-white shadow-2xl">
                 <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/60">Onboarding</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/60">Guía rápida</div>
                         <div className="text-2xl font-semibold">{currentStep.title}</div>
                     </div>
                     <button onClick={onSkip} className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs text-white/80">Saltar</button>
@@ -49,7 +49,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
                     ))}
                 </div>
 
-                <div className="text-sm text-white/75">Imita el gesto para avanzar. Si lo prefieres, puedes saltar el tutorial con un gesto rápido de rotación.</div>
+                <div className="text-sm text-white/75">Imita el gesto para avanzar. Ideal para videollamadas, presentaciones y clases cuando querés dibujar o señalar sobre la pantalla.</div>
 
                 {showCheck && (
                     <div className="mt-4 flex items-center justify-center text-4xl font-semibold text-emerald-400">✓</div>

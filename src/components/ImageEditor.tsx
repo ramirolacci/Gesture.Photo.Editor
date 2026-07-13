@@ -71,9 +71,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         setBrushColor,
         setBrushSize,
         loadImage,
-        saveProject,
         loadProject,
-        loadAutoSave,
         serializeCurrentProject,
         undo,
         redo,
@@ -282,11 +280,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
                 <div className="pointer-events-auto absolute right-4 top-4 flex gap-2">
                     <button
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => void clearCanvas()}
                         className="rounded-full border border-white/20 bg-black/50 px-3 py-2 text-sm text-white/90 backdrop-blur"
-                        title="Cargar imagen"
+                        title="Limpiar pantalla"
                     >
-                        ⌂
+                        🧽
                     </button>
                     <button
                         onClick={() => setIsSettingsOpen((prev) => !prev)}
@@ -358,10 +356,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             {isSettingsOpen && (
                 <div className="pointer-events-auto absolute right-4 top-16 z-30 w-[min(320px,calc(100vw-2rem))] rounded-2xl border border-white/15 bg-black/70 p-3 text-white shadow-2xl backdrop-blur">
                     <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/70">
-                        <span>Settings</span>
+                        <span>Anotación</span>
                         <button onClick={() => setIsSettingsOpen(false)} className="text-white/80">✕</button>
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto space-y-3 text-[11px]">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
+                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">Modo de presentación</div>
+                            <p className="text-sm text-white/80">Dibujá, señalá y borrá sobre la pantalla mientras compartís tu video o tu presentación.</p>
+                        </div>
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2">
                             <div className="mb-1 flex justify-between">
                                 <span>Sensibilidad Swipe</span>
@@ -385,9 +387,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                             <input type="range" min="0.30" max="0.70" step="0.01" value={maxPinchDistance} onChange={(e) => setMaxPinchDistance(Number(e.target.value))} className="w-full accent-indigo-400 mt-2" />
                         </div>
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                            <button onClick={() => saveProject()} className="w-full rounded-lg bg-white/10 px-3 py-2 text-left">💾 Guardar proyecto</button>
-                            <button onClick={() => projectInputRef.current?.click()} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">📂 Abrir proyecto</button>
-                            <button onClick={() => loadAutoSave()} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">⏮ Restaurar auto-guardado</button>
+                            <button onClick={() => void clearCanvas()} className="w-full rounded-lg bg-white/10 px-3 py-2 text-left">🧽 Limpiar pantalla</button>
+                            <button onClick={() => setIsSettingsOpen(false)} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">✓ Cerrar</button>
                         </div>
                     </div>
                 </div>

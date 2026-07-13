@@ -23,20 +23,20 @@ interface UseTutorialOptions {
 
 const STORAGE_KEY = 'gesture_photo_tutorial_state_v1';
 const TUTORIAL_STEPS: TutorialStep[] = [
-    { id: 'PINCH', title: 'Pinch', description: 'Apreta con el pulgar y el índice', icon: '🤏' },
-    { id: 'POINT', title: 'Point', description: 'Señala con el índice', icon: '☝️' },
-    { id: 'PEACE', title: 'Peace', description: 'Haz la V con dos dedos', icon: '✌️' },
-    { id: 'FIST', title: 'Fist', description: 'Cierra el puño', icon: '✊' },
-    { id: 'THUMBS_UP', title: 'Thumbs up', description: 'Pulgar arriba', icon: '👍' },
+    { id: 'PINCH', title: 'Dibujar', description: 'Apreta con el pulgar y el índice para usar el pincel', icon: '✍️' },
+    { id: 'POINT', title: 'Mover', description: 'Señala con el índice para mover anotaciones', icon: '☝️' },
+    { id: 'PEACE', title: 'Borrar', description: 'Haz la V para borrar', icon: '✌️' },
+    { id: 'FIST', title: 'Zoom', description: 'Cierra el puño para acercar o alejar', icon: '✊' },
+    { id: 'THUMBS_UP', title: 'Listo', description: 'Pulgar arriba para confirmar', icon: '👍' },
 ];
 
 const gestureInfo: Record<GestureType, { title: string; description: string; icon: string }> = {
-    PINCH: { title: 'Pincel', description: 'Selecciona o dibuja', icon: '🤏' },
-    POINT: { title: 'Mover', description: 'Mueve el canvas', icon: '☝️' },
-    OPEN_PALM: { title: 'Abrir mano', description: 'Pausa o controla', icon: '🖐️' },
-    FIST: { title: 'Zoom', description: 'Ajusta el zoom', icon: '✊' },
-    THUMBS_UP: { title: 'Exportar', description: 'Guarda o exporta', icon: '👍' },
-    PEACE: { title: 'Borrador', description: 'Limpia o borra', icon: '✌️' },
+    PINCH: { title: 'Pincel', description: 'Dibuja sobre la pantalla', icon: '✍️' },
+    POINT: { title: 'Mover', description: 'Desplaza anotaciones', icon: '☝️' },
+    OPEN_PALM: { title: 'Pausa', description: 'Detén los gestos temporalmente', icon: '🖐️' },
+    FIST: { title: 'Zoom', description: 'Ajusta la vista', icon: '✊' },
+    THUMBS_UP: { title: 'Confirmar', description: 'Listo para seguir', icon: '👍' },
+    PEACE: { title: 'Borrador', description: 'Limpia lo que quieras', icon: '✌️' },
     NONE: { title: 'Sin gesto', description: '', icon: '⋯' },
 };
 
