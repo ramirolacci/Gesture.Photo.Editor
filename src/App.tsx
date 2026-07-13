@@ -15,6 +15,7 @@ function App() {
     const [showToolbar, setShowToolbar] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [showCameraPreview, setShowCameraPreview] = useState(true);
     const wasOpenPalmRef = useRef(false);
     const wasSettingsGestureRef = useRef(false);
     const toolbarTimerRef = useRef<number | null>(null);
@@ -131,7 +132,7 @@ function App() {
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
-            <CameraFeed onHandsDetected={handleHandsDetected} className="absolute inset-0 z-0" />
+            <CameraFeed onHandsDetected={handleHandsDetected} className="absolute inset-0 z-0" showPreview={showCameraPreview} />
 
             <TutorialOverlay
                 visible={visible}
@@ -181,6 +182,12 @@ function App() {
                                 className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
                             >
                                 {isFullscreen ? '⤡' : '⤢'}
+                            </button>
+                            <button
+                                onClick={() => setShowCameraPreview((prev) => !prev)}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:bg-white/20"
+                            >
+                                {showCameraPreview ? '🖥️' : '📌'}
                             </button>
                             <button
                                 onClick={() => setShowSettings(false)}

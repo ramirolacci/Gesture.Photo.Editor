@@ -67,6 +67,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         currentTool,
         selectTool,
         pointerPos,
+        brushColor,
         brushSize,
         setBrushColor,
         setBrushSize,
@@ -226,6 +227,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const cursorPosition = handCursorPosition ?? pointerPos;
     const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
     const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : '#ef4444');
+    const quickColors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ffffff', '#111827'];
 
     useEffect(() => {
         if (twoHandSelectorVisible) {
@@ -300,6 +302,37 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         {currentTool === 'SELECT_BRUSH' ? '🖌️ Pincel' : currentTool === 'SELECT_ERASER' ? '🧹 Borrador' : currentTool === 'SELECT_MOVE' ? '✋ Mover' : currentTool === 'SELECT_ZOOM' ? '🔍 Zoom' : '⋯'}
                     </div>
                 )}
+
+                <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur">
+                    <button
+                        onClick={() => selectTool('SELECT_BRUSH')}
+                        className={`rounded-full px-2 py-1 text-sm ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500/30 text-white' : 'bg-white/10 text-white/80'}`}
+                    >
+                        ✍️
+                    </button>
+                    <div className="flex items-center gap-1">
+                        {quickColors.map((color) => (
+                            <button
+                                key={color}
+                                onClick={() => setBrushColor(color)}
+                                className={`h-5 w-5 rounded-full border ${brushColor === color ? 'border-white' : 'border-white/20'}`}
+                                style={{ backgroundColor: color }}
+                                title={color}
+                            />
+                        ))}
+                    </div>
+                    <input
+                        type="range"
+                        min="1"
+                        max="24"
+                        value={brushSize}
+                        onChange={(e) => setBrushSize(Number(e.target.value))}
+                        className="w-24 accent-cyan-400"
+                        title="Grosor"
+                    />
+                    <button onClick={() => void undo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↩</button>
+                    <button onClick={() => void redo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↪</button>
+                </div>
 
                 {twoHandSelectorVisible && (
                     <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
