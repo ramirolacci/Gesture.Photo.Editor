@@ -4,11 +4,11 @@
 
 **Editor interactivo de fotos y lienzo de anotación en tiempo real controlado por gestos de manos sin contacto.**
 
-[![React](https://img.shields.io/badge/React-18-blue?style=for-the-badge&logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-Hands-orange?style=for-the-badge&logo=google)](https://developers.google.com/mediapipe)
 [![Fabric.js](https://img.shields.io/badge/Fabric.js-Canvas-red?style=for-the-badge)](https://fabricjs.com/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com/)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=for-the-badge&logo=tailwind-css&logoColor=white)
 
 ---
 
