@@ -3,7 +3,6 @@ import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { fabric } from 'fabric';
 import { playSelectSound, playSuccessSound, playToggleSound } from '../utils/audioFeedback';
 import { useProjectHistory } from './useProjectHistory';
-import { serializeProject, deserializeProject } from '../utils/projectSerializer';
 import { exportCanvas, ExportOptions } from '../utils/canvasExporter';
 
 const createStarPoints = (centerX: number, centerY: number, points: number, innerRadius: number, outerRadius: number) => {
@@ -125,7 +124,6 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const [isHighlightMode, setIsHighlightModeState] = useState(false);
     const isHighlightModeRef = useRef(false);
 
-    const projectNameRef = useRef('Presentación en Vivo');
     const [pointerPos, setPointerPos] = useState<{ x: number; y: number } | null>(null);
 
     // Gesture & Pointer tracking refs
@@ -136,6 +134,8 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
     const isPinchingRef = useRef(false);
     const wasPinchingRef = useRef(false);
+    const isPointingRef = useRef(false);
+    const wasPointingRef = useRef(false);
     const isEraserRef = useRef(false);
 
     // Active gesture interaction state
@@ -181,7 +181,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
     // ─── History ──────────────────────────────────────────────────────────────
 
-    const onRestored = useCallback((_activeLayerId: string | null) => {
+    const onRestored = useCallback(() => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
         canvas.requestRenderAll();
@@ -558,6 +558,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         if (isGesturePaused) {
             targetPosRef.current = null;
+            isPointingRef.current = false;
             isPinchingRef.current = false;
             isEraserRef.current = false;
             return;
@@ -577,6 +578,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             }
         } else {
             targetPosRef.current = null;
+            isPointingRef.current = false;
             isPinchingRef.current = false;
             isEraserRef.current = false;
             return;
@@ -594,12 +596,16 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 const dy = thumbTip.y - indexTip.y;
                 const dz = (thumbTip.z || 0) - (indexTip.z || 0);
                 const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                localIsPinching = dist < pinchSensitivity;
+                localIsPinching = dist < pinchSensitivity || gesture?.type === 'PINCH';
             } else {
                 localIsPinching = gesture?.type === 'PINCH';
             }
 
+            // POINT (índice extendido solo) -> Dibujar
+            isPointingRef.current = gesture?.type === 'POINT';
+            // PINCH (pulgar e índice juntos) -> Agarrar y Arrastrar
             isPinchingRef.current = localIsPinching;
+            // PEACE (índice y medio extendidos/juntos) -> Borrar
             isEraserRef.current = gesture?.type === 'PEACE';
         }
     }, [hands, gestures, isGesturePaused, pinchSensitivity, virtualPointerPos]);
@@ -654,12 +660,13 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 setPointerPos({ ...smoothedPosRef.current });
 
                 const pos = smoothedPosRef.current;
-                const tool = currentToolRef.current;
-                const isPinching = isPinchingRef.current;
-                const isErasing = isEraserRef.current;
+                const tool: EditorAction = currentToolRef.current;
+                const isPointing = isPointingRef.current || (tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER');
+                const isPinching = isPinchingRef.current || tool === 'SELECT_MOVE';
+                const isErasing = isEraserRef.current || tool === 'SELECT_ERASER';
 
-                // 1. ERASER GESTURE / MODE
-                if (tool === 'SELECT_ERASER' || isErasing) {
+                // 1. ERASER GESTURE (PEACE = Dedo índice + medio)
+                if (isErasing) {
                     const erasePoint = new fabric.Point(pos.x, pos.y);
                     const objects = canvas.getObjects();
                     let removed = false;
@@ -678,121 +685,126 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         syncLayers();
                     }
                 }
-                // 2. PINCH GESTURE INTERACTION (GRAB OR VECTOR DRAW)
+                // 2. DRAWING GESTURE (POINT = Solo dedo índice extendido)
+                else if (isPointing && !isPinching) {
+                    if (!wasPointingRef.current) {
+                        // Iniciar trazo con el índice
+                        currentStrokePointsRef.current = [{ x: pos.x, y: pos.y }];
+                    } else {
+                        // Continuar trazo con el índice
+                        currentStrokePointsRef.current.push({ x: pos.x, y: pos.y });
+                        if (activePathPreviewRef.current) {
+                            canvas.remove(activePathPreviewRef.current);
+                        }
+                        const pathData = pointsToSvgPath(currentStrokePointsRef.current);
+                        const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
+                        const strokeColor = tool === 'SELECT_LASER' ? '#FF0055' : isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
+
+                        const preview = new fabric.Path(pathData, {
+                            fill: '',
+                            stroke: strokeColor,
+                            strokeWidth: strokeWidth,
+                            strokeLineCap: 'round',
+                            strokeLineJoin: 'round',
+                            selectable: false,
+                            evented: false,
+                        });
+                        canvas.add(preview);
+                        activePathPreviewRef.current = preview;
+                        canvas.requestRenderAll();
+                    }
+                }
+                // 3. GRAB & DRAG GESTURE (PINCH = Pulgar + Índice tocando/abriendo/cerrando)
                 else if (isPinching) {
                     if (!wasPinchingRef.current) {
-                        // START OF PINCH
+                        // Iniciar agarre sobre un objeto
                         const pointer = new fabric.Point(pos.x, pos.y);
                         const objects = canvas.getObjects();
                         let foundObj: fabric.Object | null = null;
 
-                        // Check if pinching over an existing object to GRAB IT
                         for (let i = objects.length - 1; i >= 0; i--) {
                             const obj = objects[i];
-                            if (obj.visible !== false && (obj.containsPoint(pointer) || tool === 'SELECT_MOVE')) {
-                                if (obj.containsPoint(pointer)) {
-                                    foundObj = obj;
-                                    break;
-                                }
+                            if (obj.visible !== false && obj.containsPoint(pointer)) {
+                                foundObj = obj;
+                                break;
                             }
                         }
 
                         if (foundObj) {
-                            // GRAB OBJECT!
                             canvas.setActiveObject(foundObj);
                             grabbedObjectRef.current = foundObj;
                             grabOffsetRef.current = { x: foundObj.left! - pos.x, y: foundObj.top! - pos.y };
                             pushSnapshot(`Agarrar: ${(foundObj as any).name}`);
                             canvas.requestRenderAll();
-                        } else if (tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER') {
-                            // START VECTOR PATH DRAWING
-                            currentStrokePointsRef.current = [{ x: pos.x, y: pos.y }];
                         }
-                    } else {
-                        // CONTINUATION OF PINCH
-                        if (grabbedObjectRef.current && grabOffsetRef.current) {
-                            // DRAG OBJECT!
-                            grabbedObjectRef.current.set({
-                                left: pos.x + grabOffsetRef.current.x,
-                                top: pos.y + grabOffsetRef.current.y,
-                            });
-                            canvas.requestRenderAll();
-                        } else if (tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER') {
-                            // CONTINUE VECTOR PATH PREVIEW
-                            currentStrokePointsRef.current.push({ x: pos.x, y: pos.y });
-                            if (activePathPreviewRef.current) {
-                                canvas.remove(activePathPreviewRef.current);
-                            }
-                            const pathData = pointsToSvgPath(currentStrokePointsRef.current);
-                            const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
-                            const strokeColor = tool === 'SELECT_LASER' ? '#FF0055' : isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
+                    } else if (grabbedObjectRef.current && grabOffsetRef.current) {
+                        // Arrastrar objeto agarrado
+                        grabbedObjectRef.current.set({
+                            left: pos.x + grabOffsetRef.current.x,
+                            top: pos.y + grabOffsetRef.current.y,
+                        });
+                        canvas.requestRenderAll();
+                    }
+                }
 
-                            const preview = new fabric.Path(pathData, {
-                                fill: '',
-                                stroke: strokeColor,
-                                strokeWidth: strokeWidth,
-                                strokeLineCap: 'round',
-                                strokeLineJoin: 'round',
-                                selectable: false,
-                                evented: false,
-                            });
-                            canvas.add(preview);
-                            activePathPreviewRef.current = preview;
-                            canvas.requestRenderAll();
+                // Finalizar trazo de dibujo al soltar el índice
+                if (wasPointingRef.current && !isPointing) {
+                    if (activePathPreviewRef.current) {
+                        canvas.remove(activePathPreviewRef.current);
+                        activePathPreviewRef.current = null;
+                    }
+
+                    if (currentStrokePointsRef.current.length > 0) {
+                        const pathData = pointsToSvgPath(currentStrokePointsRef.current);
+                        const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
+                        const isLaser = (currentToolRef.current as string) === 'SELECT_LASER';
+                        const strokeColor = isLaser ? '#FF0055' : isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
+
+                        const finalPath = new fabric.Path(pathData, {
+                            fill: '',
+                            stroke: strokeColor,
+                            strokeWidth: strokeWidth,
+                            strokeLineCap: 'round',
+                            strokeLineJoin: 'round',
+                            selectable: !isLaser,
+                            hasControls: !isLaser,
+                        });
+
+                        const pathAny = finalPath as any;
+                        pathAny.id = 'stroke_' + Date.now();
+                        pathAny.layerType = 'drawing';
+                        pathAny.name = isLaser ? 'Rastro Láser' : `Trazo Libre ${canvas.getObjects().length + 1}`;
+
+                        pushSnapshot(isLaser ? 'Puntero Láser' : 'Trazo Libre');
+                        canvas.add(finalPath);
+                        commitHead();
+
+                        if (isLaser) {
+                            setTimeout(() => {
+                                canvas.remove(finalPath);
+                                canvas.requestRenderAll();
+                            }, 1800);
                         }
                     }
-                } else if (wasPinchingRef.current) {
-                    // END OF PINCH
+                    currentStrokePointsRef.current = [];
+                    syncLayers();
+                }
+
+                // Finalizar agarre al soltar pinch
+                if (wasPinchingRef.current && !isPinching) {
                     if (grabbedObjectRef.current) {
                         commitHead();
                         grabbedObjectRef.current = null;
                         grabOffsetRef.current = null;
                         syncLayers();
-                    } else if (tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER') {
-                        if (activePathPreviewRef.current) {
-                            canvas.remove(activePathPreviewRef.current);
-                            activePathPreviewRef.current = null;
-                        }
-
-                        if (currentStrokePointsRef.current.length > 0) {
-                            const pathData = pointsToSvgPath(currentStrokePointsRef.current);
-                            const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
-                            const strokeColor = tool === 'SELECT_LASER' ? '#FF0055' : isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
-
-                            const finalPath = new fabric.Path(pathData, {
-                                fill: '',
-                                stroke: strokeColor,
-                                strokeWidth: strokeWidth,
-                                strokeLineCap: 'round',
-                                strokeLineJoin: 'round',
-                                selectable: tool !== 'SELECT_LASER',
-                                hasControls: tool !== 'SELECT_LASER',
-                            });
-
-                            const pathAny = finalPath as any;
-                            pathAny.id = 'stroke_' + Date.now();
-                            pathAny.layerType = 'drawing';
-                            pathAny.name = tool === 'SELECT_LASER' ? 'Rastro Láser' : `Trazo Libre ${canvas.getObjects().length + 1}`;
-
-                            pushSnapshot(tool === 'SELECT_LASER' ? 'Puntero Láser (gesto)' : 'Trazo Libre (gesto)');
-                            canvas.add(finalPath);
-                            commitHead();
-
-                            if (tool === 'SELECT_LASER') {
-                                setTimeout(() => {
-                                    canvas.remove(finalPath);
-                                    canvas.requestRenderAll();
-                                }, 1800);
-                            }
-                        }
-                        currentStrokePointsRef.current = [];
-                        syncLayers();
                     }
                 }
 
+                wasPointingRef.current = isPointing;
                 wasPinchingRef.current = isPinching;
             } else {
                 smoothedPosRef.current = null;
+                wasPointingRef.current = false;
                 wasPinchingRef.current = false;
                 grabbedObjectRef.current = null;
                 grabOffsetRef.current = null;
@@ -845,24 +857,6 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         });
     }, [syncLayers]);
 
-    const loadProject = useCallback(async (json: string) => {
-        const canvas = fabricCanvasRef.current;
-        if (!canvas) return;
-        try {
-            const project = JSON.parse(json);
-            await deserializeProject(project, canvas);
-            syncLayers();
-        } catch {
-            // Ignored
-        }
-    }, [syncLayers]);
-
-    const serializeCurrentProject = useCallback(() => {
-        const canvas = fabricCanvasRef.current;
-        if (!canvas) return '{}';
-        return JSON.stringify(serializeProject(canvas, projectNameRef.current));
-    }, []);
-
     const exportAs = useCallback(async (options?: ExportOptions) => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
@@ -880,8 +874,6 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         setBrushSize,
         setHighlightMode,
         loadImage,
-        loadProject,
-        serializeCurrentProject,
         undo: historyUndo,
         redo: historyRedo,
         historyEntries,

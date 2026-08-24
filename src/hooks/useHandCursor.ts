@@ -22,7 +22,7 @@ export function useHandCursor({
     gestures,
     isGesturePaused = false,
     viewportSize,
-    smoothing = 0.18,
+    smoothing = 0.22,
 }: HandCursorOptions): HandCursorResult {
     const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
     const [isVisible, setIsVisible] = useState(false);
@@ -117,9 +117,12 @@ export function useHandCursor({
         };
 
         targetPositionRef.current = nextPosition;
-        setIsDrawing(gestureType === 'PINCH');
+        // POINT (índice extendido) = Dibujar
+        setIsDrawing(gestureType === 'POINT');
+        // PEACE (índice + medio extendidos juntos) = Borrar
         setIsErasing(gestureType === 'PEACE');
-        setIsMoving(gestureType === 'POINT');
+        // PINCH (pulgar + índice juntos) = Agarrar / Arrastrar
+        setIsMoving(gestureType === 'PINCH');
     }, [hands, gestures, isGesturePaused, size.height, size.width]);
 
     return {

@@ -1,14 +1,11 @@
 import { GestureType, Landmark } from '../types/hand';
 import { calculateDistance, calculateDistance2D, FingerLandmarks } from './distanceCalculator';
 
-/**
- * Umbral para detectar si dos puntos están "juntos"
- */
 const PINCH_THRESHOLD = 0.16;
-const PINCH_DEPTH_THRESHOLD = 0.10;
+const PINCH_DEPTH_THRESHOLD = 0.12;
 
 /**
- * Detecta gesto de PINCH (pulgar + índice juntos)
+ * Detecta gesto de PINCH (pulgar + índice juntos para agarrar y arrastrar)
  */
 export function detectPinch(landmarks: Landmark[]): boolean {
     const thumbTip = landmarks[FingerLandmarks.THUMB_TIP];
@@ -22,13 +19,10 @@ export function detectPinch(landmarks: Landmark[]): boolean {
 }
 
 /**
- * Detecta gesto de POINT (solo índice extendido)
+ * Detecta gesto de POINT (solo índice extendido para dibujar)
  */
 export function detectPoint(landmarks: Landmark[]): boolean {
-    // Verificar que el índice esté extendido
     const indexExtended = isFingerExtended(landmarks, 'index');
-
-    // Verificar que los otros dedos estén cerrados
     const middleClosed = !isFingerExtended(landmarks, 'middle');
     const ringClosed = !isFingerExtended(landmarks, 'ring');
     const pinkyClosed = !isFingerExtended(landmarks, 'pinky');
@@ -69,7 +63,6 @@ export function detectThumbsUp(landmarks: Landmark[]): boolean {
     const thumbIP = landmarks[FingerLandmarks.THUMB_IP];
     const indexMCP = landmarks[FingerLandmarks.INDEX_MCP];
 
-    // Pulgar apuntando hacia arriba (y más arriba que el índice)
     const thumbUp = thumbTip.y < thumbIP.y && thumbTip.y < indexMCP.y;
     const otherFingersClosed =
         !isFingerExtended(landmarks, 'index') &&
@@ -81,15 +74,15 @@ export function detectThumbsUp(landmarks: Landmark[]): boolean {
 }
 
 /**
- * Detecta gesto de PEACE (índice y medio extendidos)
+ * Detecta gesto de PEACE (índice y medio extendidos/juntos para borrar)
  */
 export function detectPeace(landmarks: Landmark[]): boolean {
-    return (
-        isFingerExtended(landmarks, 'index') &&
-        isFingerExtended(landmarks, 'middle') &&
-        !isFingerExtended(landmarks, 'ring') &&
-        !isFingerExtended(landmarks, 'pinky')
-    );
+    const indexExtended = isFingerExtended(landmarks, 'index');
+    const middleExtended = isFingerExtended(landmarks, 'middle');
+    const ringClosed = !isFingerExtended(landmarks, 'ring');
+    const pinkyClosed = !isFingerExtended(landmarks, 'pinky');
+
+    return indexExtended && middleExtended && ringClosed && pinkyClosed;
 }
 
 /**
@@ -109,18 +102,17 @@ function isFingerExtended(
     const pip = landmarks[pipIndex];
     const mcp = landmarks[mcpIndex];
 
-    // Para el pulgar, comparamos de forma diferente
     if (finger === 'thumb') {
         const distanceTipToMCP = calculateDistance(tip, mcp);
         const distanceTipToPIP = calculateDistance(tip, pip);
-        return distanceTipToMCP > distanceTipToPIP * 1.2;
+        return distanceTipToMCP > distanceTipToPIP * 1.1;
     }
 
-    // Para otros dedos: el tip debe estar más lejos del MCP que el PIP
     const distanceTipToMCP = calculateDistance(tip, mcp);
     const distancePipToMCP = calculateDistance(pip, mcp);
 
-    return distanceTipToMCP > distancePipToMCP * 1.3;
+    // Ajustado a 1.12 para máxima sensibilidad y reconocimiento instantáneo
+    return distanceTipToMCP > distancePipToMCP * 1.12;
 }
 
 function getFingerTipIndex(finger: string): number | null {
@@ -165,11 +157,11 @@ export function recognizeGesture(
 ): { type: GestureType; confidence: number } {
     const gestures = [
         { name: 'PINCH' as GestureType, detect: () => detectPinch(landmarks) },
+        { name: 'PEACE' as GestureType, detect: () => detectPeace(landmarks) },
         { name: 'POINT' as GestureType, detect: () => detectPoint(landmarks) },
         { name: 'OPEN_PALM' as GestureType, detect: () => detectOpenPalm(landmarks) },
         { name: 'FIST' as GestureType, detect: () => detectFist(landmarks) },
         { name: 'THUMBS_UP' as GestureType, detect: () => detectThumbsUp(landmarks) },
-        { name: 'PEACE' as GestureType, detect: () => detectPeace(landmarks) },
     ];
 
     for (const gesture of gestures) {
@@ -182,14 +174,17 @@ export function recognizeGesture(
 }
 
 /**
- * Mapeo de gestos a acciones del editor
+ * Mapeo de gestos a acciones del editor:
+ * POINT -> Dibujar (Pincel)
+ * PINCH -> Agarrar y Arrastrar (Mover)
+ * PEACE -> Borrar (Borrador)
  */
 export const GESTURE_TO_ACTION: Record<GestureType, string> = {
-    PINCH: 'SELECT_BRUSH',
-    POINT: 'SELECT_MOVE',
+    POINT: 'SELECT_BRUSH',
+    PINCH: 'SELECT_MOVE',
+    PEACE: 'SELECT_ERASER',
     OPEN_PALM: 'PAN_CANVAS',
     FIST: 'SELECT_ZOOM',
     THUMBS_UP: 'NONE',
-    PEACE: 'SELECT_ERASER',
     NONE: 'NONE',
 };

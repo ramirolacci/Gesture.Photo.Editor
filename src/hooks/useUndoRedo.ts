@@ -20,11 +20,11 @@ interface HistoryCommand {
 
 export function useUndoRedo({
     hands,
-    gestures,
+    gestures: _gestures,
     isPaused = false,
     undo,
     redo,
-    onQuickAction,
+    onQuickAction: _onQuickAction,
     onToast,
     historyEntries = [],
 }: UseUndoRedoOptions) {
@@ -34,12 +34,10 @@ export function useUndoRedo({
     const [timelineIndex, setTimelineIndex] = useState(0);
 
     const lastActionRef = useRef(0);
-    const lastAngleRef = useRef<number | null>(null);
     const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
     const actionCandidateRef = useRef<{ action: string | null; enteredAt: number | null }>({ action: null, enteredAt: null });
     const quickMenuTimerRef = useRef<number | null>(null);
     const toastTimerRef = useRef<number | null>(null);
-    const thumbHoldRef = useRef<number | null>(null);
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         setToastMessage(message);
@@ -74,105 +72,35 @@ export function useUndoRedo({
         }
 
         const hand = hands.find((entry) => entry.handedness === 'right') ?? hands[0];
-        const gesture = gestures.find((entry) => entry.hand === hand.handedness)?.type ?? 'NONE';
         const indexTip = hand.landmarks[8];
-        const thumbTip = hand.landmarks[4];
-        const wrist = hand.landmarks[0];
 
-        if (!indexTip || !thumbTip || !wrist) return;
+        if (!indexTip) return;
 
         const indexX = indexTip.x;
-        const indexY = indexTip.y;
-        const angle = Math.atan2(indexTip.y - wrist.y, indexTip.x - wrist.x);
 
-        // Region-based quick commands: require holding pointer in region for a short time to avoid accidental triggers
-        const HOLD_MS = 450;
+        // Region-based quick commands for undo/redo (holding hand near side edges)
+        const HOLD_MS = 600;
         let desiredAction: string | null = null;
-        if (indexX < 0.12) desiredAction = 'undo';
-        else if (indexX > 0.88) desiredAction = 'redo';
-        else if (indexY < 0.12) desiredAction = 'export';
-        else if (indexY > 0.88) desiredAction = 'clear';
+        if (indexX < 0.08) desiredAction = 'undo';
+        else if (indexX > 0.92) desiredAction = 'redo';
 
         const now = Date.now();
         if (desiredAction) {
             const candidate = actionCandidateRef.current;
             if (candidate.action === desiredAction && candidate.enteredAt && now - candidate.enteredAt > HOLD_MS) {
-                // Execute once and reset
                 if (desiredAction === 'undo') void runCommand({ id: 'undo', label: 'Deshecho', execute: undo });
                 else if (desiredAction === 'redo') void runCommand({ id: 'redo', label: 'Rehecho', execute: redo });
-                else if (desiredAction === 'export') void runCommand({ id: 'export', label: 'Exportado', execute: () => onQuickAction?.('export') });
-                else if (desiredAction === 'clear') void runCommand({ id: 'clear', label: 'Limpieza', execute: () => onQuickAction?.('clear') });
                 actionCandidateRef.current = { action: null, enteredAt: null };
                 return;
             }
-            // start candidate timer
             if (actionCandidateRef.current.action !== desiredAction) {
                 actionCandidateRef.current = { action: desiredAction, enteredAt: now };
             }
-            // do not proceed further while waiting for hold
             return;
         } else {
             actionCandidateRef.current = { action: null, enteredAt: null };
         }
-
-        if (gesture === 'POINT' || gesture === 'OPEN_PALM') {
-            if (lastAngleRef.current !== null) {
-                const delta = angle - lastAngleRef.current;
-                if (delta > 0.4) {
-                    void runCommand({ id: 'undo-rotate', label: 'Deshecho', execute: undo });
-                } else if (delta < -0.4) {
-                    void runCommand({ id: 'redo-rotate', label: 'Rehecho', execute: redo });
-                }
-            }
-            lastAngleRef.current = angle;
-        } else {
-            lastAngleRef.current = null;
-        }
-
-        const thumbDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-        // Require a short hold to open quick menu and increase threshold to reduce false positives
-        const QUICK_MENU_THRESHOLD = 0.09;
-        const QUICK_MENU_HOLD_MS = 220;
-        if ((gesture === 'PINCH' || gesture === 'POINT') && thumbDistance < QUICK_MENU_THRESHOLD) {
-            const now2 = Date.now();
-            if (thumbHoldRef.current === null) {
-                thumbHoldRef.current = now2;
-            } else if (now2 - thumbHoldRef.current > QUICK_MENU_HOLD_MS) {
-                if (!quickMenuVisible) {
-                    setQuickMenuVisible(true);
-                    if (quickMenuTimerRef.current) {
-                        window.clearTimeout(quickMenuTimerRef.current);
-                    }
-                    quickMenuTimerRef.current = window.setTimeout(() => setQuickMenuVisible(false), 2200);
-                }
-                // keep menu until interaction
-            }
-            return;
-        } else {
-            thumbHoldRef.current = null;
-        }
-
-        if (quickMenuVisible) {
-            if (!swipeStartRef.current) {
-                swipeStartRef.current = { x: indexX, y: indexY };
-                return;
-            }
-
-            const dx = indexX - swipeStartRef.current.x;
-            const dy = indexY - swipeStartRef.current.y;
-            const threshold = 0.16;
-            if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-                const action = Math.abs(dx) > Math.abs(dy)
-                    ? (dx > 0 ? 'newLayer' : 'prevLayer')
-                    : (dy > 0 ? 'clear' : 'export');
-                void onQuickAction?.(action);
-                setQuickMenuVisible(false);
-                swipeStartRef.current = null;
-            }
-        } else {
-            swipeStartRef.current = null;
-        }
-    }, [gestures, hands, onQuickAction, quickMenuVisible, redo, runCommand, undo]);
+    }, [hands, redo, runCommand, undo]);
 
     useEffect(() => {
         if (!timelineVisible || !historyEntries.length) return;

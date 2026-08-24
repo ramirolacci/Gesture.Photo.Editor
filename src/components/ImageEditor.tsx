@@ -2,8 +2,6 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
 import { QuickMenu } from './QuickMenu';
-import { ColorWheel } from './ColorWheel';
-import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 
 interface ImageEditorProps {
@@ -36,7 +34,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     handCursorState,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -58,7 +55,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         brushSize,
         setBrushColor,
         setBrushSize,
-        loadImage,
         undo,
         redo,
         historyEntries,
@@ -79,25 +75,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const canvasWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const canvasHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
 
-    const { color: twoHandColor, size: twoHandSize, visible: twoHandSelectorVisible } = useTwoHandGestures({
-        hands,
-        gestures,
-        viewportSize: { width: canvasWidth, height: canvasHeight },
-    });
-
     const { toastMessage, quickMenuVisible, quickActions } = useUndoRedo({
         hands,
         gestures,
         isPaused: isGesturePaused,
         undo,
         redo,
-        onQuickAction: async (action) => {
-            if (action === 'clear') {
-                await clearCanvas();
-            } else if (action === 'export') {
-                await exportAs({ format: 'png', scale: 2 });
-            }
-        },
         onToast: showToast,
         historyEntries,
     });
@@ -108,31 +91,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         }
     }, [currentAction, currentTool, selectTool]);
 
-    const handleLoadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            if (ev.target?.result) {
-                loadImage(ev.target.result as string);
-                showToast('Imagen importada para la presentación', 'success');
-            }
-        };
-        reader.readAsDataURL(file);
-        event.target.value = '';
-    };
-
     const cursorPosition = handCursorPosition ?? pointerPos;
     const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
-    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_LASER' ? '#FF0055' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : brushColor);
+    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_LASER' ? '#FF0055' : currentTool === 'SELECT_MOVE' ? '#22c55e' : brushColor;
     const quickColors = ['#00F0FF', '#FFD700', '#FF007F', '#00FF66', '#FFFFFF', '#FF3333'];
-
-    useEffect(() => {
-        if (twoHandSelectorVisible) {
-            setBrushColor(twoHandColor);
-            setBrushSize(twoHandSize);
-        }
-    }, [setBrushColor, setBrushSize, twoHandColor, twoHandSize, twoHandSelectorVisible]);
 
     return (
         <div className={`relative h-screen w-screen overflow-hidden ${className}`}>
@@ -163,21 +125,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                 backgroundColor: cursorColor,
                             }}
                         />
+                        <div
+                            className="absolute left-6 top-6 whitespace-nowrap rounded-md border border-white/20 bg-black/80 px-2 py-1 text-[10px] font-bold text-white shadow-lg backdrop-blur"
+                            style={{ borderColor: cursorColor }}
+                        >
+                            {handCursorState?.isErasing
+                                ? '🧹 Borrando'
+                                : handCursorState?.isDrawing
+                                ? '✏️ Dibujando / Agarrando'
+                                : '📍 Puntero'}
+                        </div>
                     </div>
                 )}
             </div>
 
             <div className="pointer-events-none absolute inset-0 z-10">
-                <ColorWheel color={twoHandColor} size={twoHandSize} visible={twoHandSelectorVisible} />
-
+                {/* Top Right Controls */}
                 <div className="pointer-events-auto absolute right-4 top-4 flex gap-2">
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
-                        title="Importar Imagen"
-                    >
-                        🖼️ Imagen
-                    </button>
                     <button
                         onClick={() => void clearCanvas()}
                         className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
@@ -194,17 +158,40 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </button>
                 </div>
 
-                <div className="pointer-events-auto absolute left-4 top-4 z-20">
-                    <button
-                        onClick={() => onToggleGesturePause?.()}
-                        className="rounded-full border border-cyan-400/40 bg-black/70 px-4 py-2 text-xs font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur hover:bg-cyan-500/20"
-                    >
-                        PRESENTACIÓN • {isGesturePaused ? 'Gestos Pausados' : 'Gestos Activos ✨'}
-                    </button>
+                {/* Top Left Gestures Guide */}
+                <div className="pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-2">
+                    {!isGesturePaused && (
+                        <div className="flex max-w-xs flex-col gap-1.5 rounded-2xl border border-cyan-400/30 bg-black/80 p-3.5 shadow-2xl backdrop-blur text-xs text-white">
+                            <div className="text-[11px] font-bold uppercase tracking-wider text-cyan-300 mb-0.5">
+                                🖐️ Guía de Gestos
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">☝️</span>
+                                <div>
+                                    <span className="font-semibold text-cyan-200">Solo Índice (Señalar):</span>
+                                    <p className="text-[11px] text-white/70">✏️ <b>Dibujar y escribir en vivo</b></p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="text-base">🤏</span>
+                                <div>
+                                    <span className="font-semibold text-emerald-300">Pinch (Pulgar + Índice):</span>
+                                    <p className="text-[11px] text-white/70">✋ <b>Tocar / Agarrar y Arrastrar objeto</b></p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="text-base">✌️</span>
+                                <div>
+                                    <span className="font-semibold text-rose-300">Dos Dedos (Índice + Medio):</span>
+                                    <p className="text-[11px] text-white/70">🧹 <b>Borrar trazos por encima</b></p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Main Presenter Toolbar */}
-                <div className="pointer-events-auto absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-cyan-400/40 bg-black/85 px-4 py-2.5 shadow-[0_0_35px_rgba(0,240,255,0.25)] backdrop-blur">
+                {/* Main Presenter Toolbar (sin luz celes de fondo) */}
+                <div className="pointer-events-auto absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/20 bg-black/90 px-4 py-2.5 shadow-2xl backdrop-blur">
                     <button
                         onClick={() => selectTool('SELECT_BRUSH')}
                         className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500 text-black shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
@@ -351,20 +338,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                                 className="w-full accent-cyan-400 cursor-pointer"
                             />
                         </div>
-
-                        <div className="space-y-2 pt-1">
-                            <button onClick={() => void clearCanvas()} className="w-full rounded-xl bg-rose-500/20 border border-rose-500/30 px-3 py-2 text-left text-rose-200 hover:bg-rose-500/30">
-                                🧽 Limpiar pantalla completa
-                            </button>
-                            <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="w-full rounded-xl bg-cyan-500/20 border border-cyan-500/30 px-3 py-2 text-left text-cyan-200 hover:bg-cyan-500/30">
-                                ⬇️ Exportar imagen PNG
-                            </button>
-                        </div>
                     </div>
                 </div>
             )}
-
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLoadImage} className="hidden" />
 
             <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
                 {toasts.map((t) => (
