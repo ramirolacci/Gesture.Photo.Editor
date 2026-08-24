@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖐️ Gesture Photo Editor & Live Canvas
+# 🖐🏻 Gesture Photo Editor & Live Canvas
 
 **Editor interactivo de fotos y lienzo de anotación en tiempo real controlado por gestos de manos sin contacto.**
 
@@ -22,7 +22,7 @@
 
 ## ✨ Características Principales
 
-* 🖐️ **Control por Gestos en Tiempo Real**: Detección fluida y precisa de la mano mediante visión artificial con MediaPipe Hands.
+* 🖐🏻 **Control por Gestos en Tiempo Real**: Detección fluida y precisa de la mano mediante visión artificial con MediaPipe Hands.
 * ✏️ **Herramientas de Anotación Versátiles**:
   * **Pincel Libre**: Dibujo dinámico con color y grosor personalizable.
   * **Puntero Láser**: Trazo fosforescente con desvanecimiento automático para presentaciones.
@@ -36,15 +36,15 @@
 
 ---
 
-## 🖐️ Guía de Gestos Manuales
+## 🖐🏻 Guía de Gestos Manuales
 
 | Gesto | Nombre | Acción en la Aplicación |
 | :---: | :--- | :--- |
-| ☝️ | **Solo Índice** | Mueve el puntero interactivo por la pantalla. |
-| 🤏 | **Pinch (Pulgar + Índice)** | **Dibujar / Agarrar**: Traza líneas en espacio libre o arrastra objetos seleccionados. |
-| ✌️ | **Peace (Índice + Medio)** | Activa el **Borrador Vectorial** rápido. |
-| 🖐️ | **Palma Abierta** | Alterna **Pausa / Reanudación** de la lectura de gestos. |
-| ✌️✌️ | **Doble Peace (Dos manos)** | Abre / Cierra el menú rápido de ajustes del lienzo. |
+| ☝🏻 | **Solo Índice** | Mueve el puntero interactivo por la pantalla. |
+| 🤏🏻 | **Pinch (Pulgar + Índice)** | **Dibujar / Agarrar**: Traza líneas en espacio libre o arrastra objetos seleccionados. |
+| ✌🏻 | **Peace (Índice + Medio)** | Activa el **Borrador Vectorial** rápido. |
+| 🖐🏻| **Palma Abierta** | Alterna **Pausa / Reanudación** de la lectura de gestos. |
+| ✌🏻✌🏻 | **Doble Peace (Dos manos)** | Abre / Cierra el menú rápido de ajustes del lienzo. |
 
 ---
 
