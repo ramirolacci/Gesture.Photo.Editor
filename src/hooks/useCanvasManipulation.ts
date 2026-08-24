@@ -661,8 +661,8 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
                 const pos = smoothedPosRef.current;
                 const tool: EditorAction = currentToolRef.current;
-                const isPointing = isPointingRef.current || (tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER');
-                const isPinching = isPinchingRef.current || tool === 'SELECT_MOVE';
+                const isPointing = isPointingRef.current || tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER';
+                const isPinching = isPinchingRef.current;
                 const isErasing = isEraserRef.current || tool === 'SELECT_ERASER';
 
                 // 1. ERASER GESTURE (PEACE = Dedo índice + medio)

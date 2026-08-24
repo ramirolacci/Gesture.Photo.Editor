@@ -20,11 +20,10 @@ function App() {
     }, []);
 
     const handleGestureDetected = useCallback(
-        (_gesture: RecognizedGesture, action: EditorAction) => {
-            if (isGesturePaused) return;
-            setCurrentAction(action);
+        (_gesture: RecognizedGesture, _action: EditorAction) => {
+            // Gestos procesados en vivo sin sobrescribir la herramienta seleccionada en la barra
         },
-        [isGesturePaused]
+        []
     );
 
     const { gestures } = useGestureRecognition({
