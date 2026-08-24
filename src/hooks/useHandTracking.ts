@@ -91,6 +91,10 @@ export function useHandTracking(options: UseHandTrackingOptions) {
                         sy = (videoHeight - sHeight) / 2;
                     }
 
+                    // Voltear horizontalmente para efecto espejo en videollamada
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+
                     ctx.drawImage(
                         videoRef.current,
                         sx,
@@ -127,14 +131,14 @@ export function useHandTracking(options: UseHandTrackingOptions) {
 
                             detectedHands.push(handLandmarks);
 
-                            // Dibujar conexiones y landmarks
+                            // Dibujar conexiones y landmarks en el canvas espejado
                             const handConnections = HAND_CONNECTIONS;
                             drawConnectors(ctx, landmarks, handConnections, {
-                                color: '#00FF00',
+                                color: '#00F0FF',
                                 lineWidth: 2,
                             });
                             drawLandmarks(ctx, landmarks, {
-                                color: '#FF0000',
+                                color: '#FF0055',
                                 lineWidth: 1,
                                 radius: 3,
                             });
@@ -210,22 +214,16 @@ export function useHandTracking(options: UseHandTrackingOptions) {
                 canvasRef.current.height = videoHeight;
             }
 
-            let lastProcessTime = 0;
-            // Iniciar detección
             const camera = new Camera(videoRef.current, {
                 onFrame: async () => {
-                    const now = Date.now();
-                    if (now - lastProcessTime >= 50) { // Limit to 20fps
-                        lastProcessTime = now;
-                        if (handsRef.current) {
-                            await handsRef.current.send({
-                                image: videoRef.current!,
-                            });
-                        }
+                    if (handsRef.current && videoRef.current) {
+                        await handsRef.current.send({
+                            image: videoRef.current,
+                        });
                     }
                 },
-                width: 640,
-                height: 480,
+                width: 1280,
+                height: 720,
             });
 
             camera.start();

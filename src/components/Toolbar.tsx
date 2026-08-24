@@ -9,8 +9,9 @@ interface ToolbarProps {
 
 const ACTION_INFO: Record<EditorAction, { icon: string; label: string }> = {
     SELECT_BRUSH: { icon: '🖌️', label: 'Pincel' },
+    SELECT_LASER: { icon: '🔴', label: 'Láser' },
     SELECT_ERASER: { icon: '🧹', label: 'Borrador' },
-    SELECT_MOVE: { icon: '✋', label: 'Mover' },
+    SELECT_MOVE: { icon: '✋', label: 'Agarrar / Mover' },
     PAN_CANVAS: { icon: '🖐️', label: 'Desplazar' },
     SELECT_ZOOM: { icon: '🔍', label: 'Zoom' },
     APPLY_FILTER: { icon: '✨', label: 'Filtro' },
@@ -22,7 +23,7 @@ const ACTION_INFO: Record<EditorAction, { icon: string; label: string }> = {
     DRAW_POLYGON: { icon: '⬡', label: 'Polígono' },
     UNDO: { icon: '↩️', label: 'Deshacer' },
     REDO: { icon: '↪️', label: 'Rehacer' },
-    NONE: { icon: '◌', label: 'Idle' },
+    NONE: { icon: '◌', label: 'Listo' },
 };
 
 export const Toolbar: React.FC<ToolbarProps> = ({

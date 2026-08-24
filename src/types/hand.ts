@@ -32,6 +32,7 @@ export type EditorAction =
     | 'SELECT_BRUSH'
     | 'SELECT_ERASER'
     | 'SELECT_MOVE'
+    | 'SELECT_LASER'
     | 'SELECT_ZOOM'
     | 'PAN_CANVAS'
     | 'APPLY_FILTER'

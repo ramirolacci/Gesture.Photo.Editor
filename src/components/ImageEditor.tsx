@@ -1,17 +1,10 @@
-﻿import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { EditorAction, HandLandmarks, RecognizedGesture } from '../types/hand';
 import { useCanvasManipulation } from '../hooks/useCanvasManipulation';
-import { useGestureCommands } from '../hooks/useGestureCommands';
-import { RadialMenu } from './RadialMenu';
-import { ColorWheel } from './ColorWheel';
-import { MiniMap } from './MiniMap';
 import { QuickMenu } from './QuickMenu';
-import { GalleryOverlay } from './GalleryOverlay';
+import { ColorWheel } from './ColorWheel';
 import { useTwoHandGestures } from '../hooks/useTwoHandGestures';
-import { useZoomPan } from '../hooks/useZoomPan';
 import { useUndoRedo } from '../hooks/useUndoRedo';
-import { useAutoSave } from '../hooks/useAutoSave';
-import { playSelectSound } from '../utils/audioFeedback';
 
 interface ImageEditorProps {
     onActionCompleted?: (action: EditorAction) => void;
@@ -44,16 +37,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const projectInputRef = useRef<HTMLInputElement>(null);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [toolFeedback, setToolFeedback] = useState<string | null>(null);
-    const [toolBadgeVisible, setToolBadgeVisible] = useState(false);
-    const [pinchSensitivity, setPinchSensitivity] = useState(0.14);
-    const [swipeSensitivity, setSwipeSensitivity] = useState(0.15);
-    const [minPinchDistance, setMinPinchDistance] = useState(0.08);
-    const [maxPinchDistance, setMaxPinchDistance] = useState(0.45);
+    const [pinchSensitivity, setPinchSensitivity] = useState(0.12);
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -69,19 +56,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         pointerPos,
         brushColor,
         brushSize,
-        isHighlightMode,
         setBrushColor,
         setBrushSize,
-        setHighlightMode,
         loadImage,
-        loadProject,
-        serializeCurrentProject,
         undo,
         redo,
         historyEntries,
         exportAs,
         clearCanvas,
-        addDrawingLayer,
     } = useCanvasManipulation({
         canvasRef,
         onActionCompleted,
@@ -91,16 +73,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         onToggleGesturePause,
         showToast,
         pinchSensitivity,
-        swipeSensitivity,
-        minPinchDistance,
-        maxPinchDistance,
         virtualPointerPos: handCursorPosition,
-    });
-
-    const { activeCommand, radialMenuVisible, clearRadialMenu } = useGestureCommands({
-        hands,
-        gestures,
-        isGesturePaused,
     });
 
     const canvasWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
@@ -112,14 +85,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         viewportSize: { width: canvasWidth, height: canvasHeight },
     });
 
-    const { zoomPercent, pan, viewportRect, mode, isActive } = useZoomPan({
-        canvasRef,
-        hands,
-        gestures,
-        viewportSize: { width: canvasWidth, height: canvasHeight },
-    });
-
-    const { toastMessage, quickMenuVisible, timelineVisible, timelineIndex, timelineEntries, quickActions } = useUndoRedo({
+    const { toastMessage, quickMenuVisible, quickActions } = useUndoRedo({
         hands,
         gestures,
         isPaused: isGesturePaused,
@@ -130,26 +96,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                 await clearCanvas();
             } else if (action === 'export') {
                 await exportAs({ format: 'png', scale: 2 });
-            } else if (action === 'newLayer') {
-                await addDrawingLayer();
             }
         },
         onToast: showToast,
         historyEntries,
-    });
-
-    const { galleryVisible, galleryProjects, lastSavedAt, closeGallery } = useAutoSave({
-        hands,
-        gestures,
-        isGesturePaused: isGesturePaused,
-        getProjectData: () => serializeCurrentProject(),
-        restoreProject: async (json) => {
-            await loadProject(json);
-        },
-        onToast: showToast,
-        onExport: async () => {
-            await exportAs({ format: 'png', scale: 2 });
-        },
     });
 
     useEffect(() => {
@@ -158,47 +108,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         }
     }, [currentAction, currentTool, selectTool]);
 
-    useEffect(() => {
-        if (!activeCommand || activeCommand === 'NONE') return;
-
-        const commandMap: Record<string, EditorAction> = {
-            PINCH: 'SELECT_BRUSH',
-            PEACE: 'SELECT_ERASER',
-            POINT: 'SELECT_MOVE',
-            FIST: 'SELECT_ZOOM',
-            THUMBS_UP: 'NONE',
-        };
-
-        if (activeCommand === 'THUMBS_UP') {
-            setToolFeedback('☝️');
-            return;
-        }
-
-        const nextTool = commandMap[activeCommand];
-        if (nextTool && nextTool !== currentTool) {
-            setToolFeedback(activeCommand === 'PINCH' ? '🖌️' : activeCommand === 'PEACE' ? '🧹' : activeCommand === 'POINT' ? '✋' : '🔍');
-            selectTool(nextTool);
-            playSelectSound();
-        }
-    }, [activeCommand, currentTool, selectTool]);
-
-    useEffect(() => {
-        if (!toolFeedback) return;
-        const timeout = window.setTimeout(() => setToolFeedback(null), 1000);
-        return () => window.clearTimeout(timeout);
-    }, [toolFeedback]);
-
-    useEffect(() => {
-        if (hands.length === 0 || gestures.every((g) => g.type === 'NONE')) {
-            setToolBadgeVisible(false);
-            return;
-        }
-
-        setToolBadgeVisible(true);
-        const timeout = window.setTimeout(() => setToolBadgeVisible(false), 1800);
-        return () => window.clearTimeout(timeout);
-    }, [currentTool, hands.length, gestures]);
-
     const handleLoadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -206,31 +115,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         reader.onload = (ev) => {
             if (ev.target?.result) {
                 loadImage(ev.target.result as string);
-                showToast('Imagen cargada', 'success');
+                showToast('Imagen importada para la presentación', 'success');
             }
         };
         reader.readAsDataURL(file);
         event.target.value = '';
     };
 
-    const handleLoadProject = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            if (ev.target?.result) {
-                loadProject(ev.target.result as string);
-                showToast('Proyecto restaurado', 'success');
-            }
-        };
-        reader.readAsText(file);
-        event.target.value = '';
-    };
-
     const cursorPosition = handCursorPosition ?? pointerPos;
     const showCursor = Boolean(cursorPosition) && !isGesturePaused && (handCursorState?.isVisible ?? true);
-    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : '#ef4444');
-    const quickColors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ffffff', '#111827'];
+    const cursorColor = currentTool === 'SELECT_ERASER' ? '#3b82f6' : currentTool === 'SELECT_LASER' ? '#FF0055' : currentTool === 'SELECT_MOVE' ? '#22c55e' : (twoHandSelectorVisible ? twoHandColor : brushColor);
+    const quickColors = ['#00F0FF', '#FFD700', '#FF007F', '#00FF66', '#FFFFFF', '#FF3333'];
 
     useEffect(() => {
         if (twoHandSelectorVisible) {
@@ -251,20 +146,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         style={{
                             left: `${(cursorPosition.x / canvasWidth) * 100}%`,
                             top: `${(cursorPosition.y / canvasHeight) * 100}%`,
-                            width: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 20)}px` : `${Math.max(brushSize + 8, 14)}px`,
-                            height: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 20)}px` : `${Math.max(brushSize + 8, 14)}px`,
+                            width: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 24)}px` : `${Math.max(brushSize + 10, 16)}px`,
+                            height: currentTool === 'SELECT_ERASER' ? `${Math.max(brushSize * 4, 24)}px` : `${Math.max(brushSize + 10, 16)}px`,
                             transform: 'translate(-50%, -50%)',
                             zIndex: 100,
                             borderColor: cursorColor,
-                            backgroundColor: `${cursorColor}22`,
-                            boxShadow: `0 0 0 2px ${cursorColor}40`,
+                            backgroundColor: `${cursorColor}33`,
+                            boxShadow: `0 0 15px ${cursorColor}aa`,
                         }}
                     >
                         <div
                             className="rounded-full"
                             style={{
-                                width: `${Math.min(brushSize, 12)}px`,
-                                height: `${Math.min(brushSize, 12)}px`,
+                                width: `${Math.min(brushSize, 10)}px`,
+                                height: `${Math.min(brushSize, 10)}px`,
                                 backgroundColor: cursorColor,
                             }}
                         />
@@ -274,134 +169,151 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
 
             <div className="pointer-events-none absolute inset-0 z-10">
                 <ColorWheel color={twoHandColor} size={twoHandSize} visible={twoHandSelectorVisible} />
-                <MiniMap zoom={zoomPercent / 100} pan={pan} viewportRect={viewportRect} visible={isActive} />
-                {toolFeedback && (
-                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-                        <div className="rounded-full border border-white/20 bg-black/70 px-4 py-3 text-3xl font-semibold text-white shadow-2xl backdrop-blur">
-                            {toolFeedback}
-                        </div>
-                    </div>
-                )}
 
                 <div className="pointer-events-auto absolute right-4 top-4 flex gap-2">
                     <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
+                        title="Importar Imagen"
+                    >
+                        🖼️ Imagen
+                    </button>
+                    <button
                         onClick={() => void clearCanvas()}
-                        className="rounded-full border border-white/20 bg-black/50 px-3 py-2 text-sm text-white/90 backdrop-blur"
+                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
                         title="Limpiar pantalla"
                     >
-                        🧽
+                        🧽 Limpiar
                     </button>
                     <button
                         onClick={() => setIsSettingsOpen((prev) => !prev)}
-                        className="rounded-full border border-white/20 bg-black/50 px-3 py-2 text-sm text-white/90 backdrop-blur"
+                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
                         title="Ajustes"
                     >
                         ⚙
                     </button>
                 </div>
 
-                {toolBadgeVisible && (
-                    <div className="pointer-events-none absolute right-4 top-14 rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-200 opacity-90 backdrop-blur">
-                        {currentTool === 'SELECT_BRUSH' ? '🖌️ Pincel' : currentTool === 'SELECT_ERASER' ? '🧹 Borrador' : currentTool === 'SELECT_MOVE' ? '✋ Mover' : currentTool === 'SELECT_ZOOM' ? '🔍 Zoom' : '⋯'}
-                    </div>
-                )}
-
-                <div className="pointer-events-auto absolute left-4 top-20 z-20">
+                <div className="pointer-events-auto absolute left-4 top-4 z-20">
                     <button
                         onClick={() => onToggleGesturePause?.()}
-                        className="rounded-full border border-white/10 bg-black/55 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/70 backdrop-blur"
-                        title="Alternar gestos"
+                        className="rounded-full border border-cyan-400/40 bg-black/70 px-4 py-2 text-xs font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur hover:bg-cyan-500/20"
                     >
-                        Presentación • {isGesturePaused ? 'Gestos desactivados' : 'Gestos activos'}
+                        PRESENTACIÓN • {isGesturePaused ? 'Gestos Pausados' : 'Gestos Activos ✨'}
                     </button>
                 </div>
 
-                <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-cyan-400/30 bg-black/80 px-3 py-2 shadow-[0_0_30px_rgba(34,211,238,0.2)] backdrop-blur">
+                {/* Main Presenter Toolbar */}
+                <div className="pointer-events-auto absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-cyan-400/40 bg-black/85 px-4 py-2.5 shadow-[0_0_35px_rgba(0,240,255,0.25)] backdrop-blur">
                     <button
                         onClick={() => selectTool('SELECT_BRUSH')}
-                        className={`rounded-full px-2 py-1 text-sm ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500/30 text-white' : 'bg-white/10 text-white/80'}`}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500 text-black shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        title="Pincel Libre (Pinch para dibujar)"
                     >
-                        ✍️
+                        ✏️ Dibujar
                     </button>
                     <button
-                        onClick={() => setHighlightMode(!isHighlightMode)}
-                        className={`rounded-full px-2 py-1 text-sm ${isHighlightMode ? 'bg-amber-500/30 text-white' : 'bg-white/10 text-white/80'}`}
-                        title="Resaltar"
+                        onClick={() => selectTool('SELECT_LASER')}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_LASER' ? 'bg-rose-500 text-white shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        title="Puntero Láser (se desvanece solo)"
                     >
-                        ✦
+                        🔴 Láser
                     </button>
-                    <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => selectTool('SELECT_MOVE')}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_MOVE' ? 'bg-emerald-500 text-black shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        title="Agarrar y Arrastrar (Pinch sobre objeto)"
+                    >
+                        ✋ Agarrar
+                    </button>
+                    <button
+                        onClick={() => selectTool('SELECT_ERASER')}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_ERASER' ? 'bg-blue-500 text-white shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        title="Borrador Vectorial"
+                    >
+                        🧹 Borrar
+                    </button>
+
+                    <div className="h-5 w-[1px] bg-white/20 mx-1" />
+
+                    {/* Shapes */}
+                    <button
+                        onClick={() => selectTool('DRAW_CIRCLE')}
+                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_CIRCLE' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
+                        title="Círculo"
+                    >
+                        ⭕
+                    </button>
+                    <button
+                        onClick={() => selectTool('DRAW_RECT')}
+                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_RECT' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
+                        title="Rectángulo"
+                    >
+                        ⬜
+                    </button>
+                    <button
+                        onClick={() => selectTool('DRAW_LINE')}
+                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_LINE' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
+                        title="Línea / Subrayado"
+                    >
+                        📏
+                    </button>
+
+                    <div className="h-5 w-[1px] bg-white/20 mx-1" />
+
+                    {/* Colors */}
+                    <div className="flex items-center gap-1.5">
                         {quickColors.map((color) => (
                             <button
                                 key={color}
                                 onClick={() => setBrushColor(color)}
-                                className={`h-5 w-5 rounded-full border ${brushColor === color ? 'border-white' : 'border-white/20'}`}
+                                className={`h-5 w-5 rounded-full border transition-transform ${brushColor === color ? 'scale-125 border-white shadow-sm' : 'border-white/30 opacity-80 hover:opacity-100'}`}
                                 style={{ backgroundColor: color }}
                                 title={color}
                             />
                         ))}
                     </div>
+
+                    <div className="h-5 w-[1px] bg-white/20 mx-1" />
+
                     <input
                         type="range"
-                        min="1"
-                        max="24"
+                        min="2"
+                        max="30"
                         value={brushSize}
                         onChange={(e) => setBrushSize(Number(e.target.value))}
-                        className="w-24 accent-cyan-400"
-                        title="Grosor"
+                        className="w-20 accent-cyan-400 cursor-pointer"
+                        title="Grosor de trazo"
                     />
-                    <button onClick={() => void clearCanvas()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80" title="Limpiar todo">🧹</button>
-                    <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80" title="Exportar PNG">⬇️</button>
-                    <button onClick={() => void undo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↩</button>
-                    <button onClick={() => void redo()} className="rounded-full bg-white/10 px-2 py-1 text-sm text-white/80">↪</button>
+
+                    <button
+                        onClick={() => void undo()}
+                        className="rounded-full bg-white/10 p-1.5 text-xs text-white hover:bg-white/20"
+                        title="Deshacer (Ctrl+Z)"
+                    >
+                        ↩
+                    </button>
+                    <button
+                        onClick={() => void redo()}
+                        className="rounded-full bg-white/10 p-1.5 text-xs text-white hover:bg-white/20"
+                        title="Rehacer (Ctrl+Y)"
+                    >
+                        ↪
+                    </button>
+                    <button
+                        onClick={() => void exportAs({ format: 'png', scale: 2 })}
+                        className="rounded-full bg-white/10 p-1.5 text-xs text-white hover:bg-white/20"
+                        title="Guardar Captura PNG"
+                    >
+                        ⬇️
+                    </button>
                 </div>
-
-                {twoHandSelectorVisible && (
-                    <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
-                        Color {Math.round(twoHandSize)}px
-                    </div>
-                )}
-
-                {isActive && (
-                    <div className="pointer-events-none absolute left-4 top-16 z-30 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80 backdrop-blur">
-                        {mode === 'zoom' ? `Zoom ${zoomPercent}%` : 'Pan'}
-                    </div>
-                )}
 
                 {quickMenuVisible && <QuickMenu visible={quickMenuVisible} actions={quickActions} />}
 
-                <GalleryOverlay
-                    visible={galleryVisible}
-                    projects={galleryProjects}
-                    onClose={closeGallery}
-                    onOpen={(project) => {
-                        void loadProject(project.data);
-                        closeGallery();
-                    }}
-                />
-
-                {timelineVisible && (
-                    <div className="pointer-events-none absolute bottom-4 left-4 z-30 rounded-2xl border border-white/15 bg-black/65 p-3 shadow-2xl backdrop-blur">
-                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">Historial</div>
-                        <div className="flex items-center gap-2">
-                            {timelineEntries.map((entry, index) => (
-                                <button key={entry.id} className={`rounded-full border px-2 py-1 text-[10px] ${index === timelineIndex ? 'border-cyan-400 bg-cyan-500/30 text-white' : 'border-white/10 bg-white/10 text-white/70'}`}>
-                                    {entry.description}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {lastSavedAt && (
-                    <div className="pointer-events-none absolute right-4 top-24 z-30 rounded-full border border-white/15 bg-black/50 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/70 backdrop-blur">
-                        Auto-save {new Date(lastSavedAt).toLocaleTimeString()}
-                    </div>
-                )}
-
                 {toastMessage && (
                     <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
-                        <div className="rounded-full border border-white/20 bg-black/70 px-3 py-2 text-sm font-semibold text-white shadow-2xl backdrop-blur">
+                        <div className="rounded-full border border-cyan-400/40 bg-black/80 px-4 py-2 text-sm font-semibold text-white shadow-2xl backdrop-blur">
                             {toastMessage}
                         </div>
                     </div>
@@ -409,75 +321,54 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             </div>
 
             {isSettingsOpen && (
-                <div className="pointer-events-auto absolute right-4 top-16 z-30 w-[min(320px,calc(100vw-2rem))] rounded-2xl border border-white/15 bg-black/70 p-3 text-white shadow-2xl backdrop-blur">
-                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/70">
-                        <span>Anotación</span>
-                        <button onClick={() => setIsSettingsOpen(false)} className="text-white/80">✕</button>
+                <div className="pointer-events-auto absolute right-4 top-16 z-30 w-[300px] rounded-2xl border border-white/20 bg-black/85 p-4 text-white shadow-2xl backdrop-blur">
+                    <div className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-cyan-300">
+                        <span>Ajustes de Presentación</span>
+                        <button onClick={() => setIsSettingsOpen(false)} className="text-white/70 hover:text-white">✕</button>
                     </div>
-                    <div className="max-h-[60vh] overflow-y-auto space-y-3 text-[11px]">
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">Modo de presentación</div>
-                            <p className="text-sm text-white/80">Dibujá, señalá y borrá sobre la pantalla mientras compartís tu video o tu presentación.</p>
+                    <div className="space-y-3 text-xs">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                            <div className="mb-1.5 font-semibold text-white/90">Gestos de Cámara:</div>
+                            <ul className="list-disc pl-4 space-y-1 text-white/70 text-[11px]">
+                                <li><b>Índice:</b> Apuntar puntero en pantalla.</li>
+                                <li><b>Pinch (Índice + Pulgar):</b> Si estás sobre un dibujo lo <b>agarrás y arrastrás</b>; si estás en espacio libre <b>dibujás</b>.</li>
+                                <li><b>Dos Dedos (Peace):</b> Borrador rápido.</li>
+                            </ul>
                         </div>
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                             <div className="mb-1 flex justify-between">
-                                <span>Sensibilidad Swipe</span>
-                                <span>{swipeSensitivity.toFixed(2)}</span>
+                                <span>Sensibilidad Pinch:</span>
+                                <span>{pinchSensitivity.toFixed(2)}</span>
                             </div>
-                            <input type="range" min="0.05" max="0.30" step="0.01" value={swipeSensitivity} onChange={(e) => setSwipeSensitivity(Number(e.target.value))} className="w-full accent-indigo-400" />
+                            <input
+                                type="range"
+                                min="0.05"
+                                max="0.20"
+                                step="0.01"
+                                value={pinchSensitivity}
+                                onChange={(e) => setPinchSensitivity(Number(e.target.value))}
+                                className="w-full accent-cyan-400 cursor-pointer"
+                            />
                         </div>
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                            <div className="mb-1 flex justify-between">
-                                <span>Pinch Sensitivity</span>
-                                <span>{pinchSensitivity.toFixed(3)}</span>
-                            </div>
-                            <input type="range" min="0.06" max="0.25" step="0.005" value={pinchSensitivity} onChange={(e) => setPinchSensitivity(Number(e.target.value))} className="w-full accent-indigo-400" />
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                            <div className="mb-1 flex justify-between">
-                                <span>Distancia opacidad</span>
-                                <span>{minPinchDistance.toFixed(2)}–{maxPinchDistance.toFixed(2)}</span>
-                            </div>
-                            <input type="range" min="0.02" max="0.20" step="0.01" value={minPinchDistance} onChange={(e) => setMinPinchDistance(Number(e.target.value))} className="w-full accent-indigo-400" />
-                            <input type="range" min="0.30" max="0.70" step="0.01" value={maxPinchDistance} onChange={(e) => setMaxPinchDistance(Number(e.target.value))} className="w-full accent-indigo-400 mt-2" />
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                            <button onClick={() => void clearCanvas()} className="w-full rounded-lg bg-white/10 px-3 py-2 text-left">🧽 Limpiar pantalla</button>
-                            <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">⬇️ Exportar PNG</button>
-                            <button onClick={() => setIsSettingsOpen(false)} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-left">✓ Cerrar</button>
+
+                        <div className="space-y-2 pt-1">
+                            <button onClick={() => void clearCanvas()} className="w-full rounded-xl bg-rose-500/20 border border-rose-500/30 px-3 py-2 text-left text-rose-200 hover:bg-rose-500/30">
+                                🧽 Limpiar pantalla completa
+                            </button>
+                            <button onClick={() => void exportAs({ format: 'png', scale: 2 })} className="w-full rounded-xl bg-cyan-500/20 border border-cyan-500/30 px-3 py-2 text-left text-cyan-200 hover:bg-cyan-500/30">
+                                ⬇️ Exportar imagen PNG
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            <RadialMenu
-                visible={radialMenuVisible}
-                cursorPosition={handCursorPosition}
-                isConfirming={handCursorState?.isDrawing ?? false}
-                onSelect={(toolId) => {
-                    const mapped: Record<string, EditorAction> = {
-                        SELECT_BRUSH: 'SELECT_BRUSH',
-                        SELECT_ERASER: 'SELECT_ERASER',
-                        SELECT_MOVE: 'SELECT_MOVE',
-                        SELECT_ZOOM: 'SELECT_ZOOM',
-                    };
-                    const selected = mapped[toolId];
-                    if (selected) {
-                        setToolFeedback(toolId === 'SELECT_BRUSH' ? '🖌️' : toolId === 'SELECT_ERASER' ? '🧹' : toolId === 'SELECT_MOVE' ? '✋' : '🔍');
-                        selectTool(selected);
-                        playSelectSound();
-                    }
-                    clearRadialMenu();
-                }}
-                onClose={clearRadialMenu}
-            />
-
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLoadImage} className="hidden" />
-            <input ref={projectInputRef} type="file" accept=".gpe,.json" onChange={handleLoadProject} className="hidden" />
 
             <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
                 {toasts.map((t) => (
-                    <div key={t.id} className={`pointer-events-auto rounded-xl border px-3 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur ${t.type === 'success' ? 'border-emerald-500/40 bg-emerald-600/80' : t.type === 'warning' ? 'border-rose-500/40 bg-rose-600/80' : 'border-indigo-500/40 bg-indigo-600/80'}`}>
+                    <div key={t.id} className={`pointer-events-auto rounded-xl border px-3 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur ${t.type === 'success' ? 'border-emerald-500/40 bg-emerald-600/90' : t.type === 'warning' ? 'border-amber-500/40 bg-amber-600/90' : 'border-cyan-500/40 bg-cyan-600/90'}`}>
                         {t.message}
                     </div>
                 ))}
