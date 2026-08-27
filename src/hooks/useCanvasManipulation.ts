@@ -102,7 +102,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
         isGesturePaused = false,
         onToggleGesturePause,
         showToast,
-        pinchSensitivity = 0.08,
+        pinchSensitivity: _pinchSensitivity = 0.08,
         swipeSensitivity: _swipeSensitivity = 0.15,
         minPinchDistance: _minPinchDistance = 0.08,
         maxPinchDistance: _maxPinchDistance = 0.45,
@@ -137,6 +137,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     const isPointingRef = useRef(false);
     const wasPointingRef = useRef(false);
     const isEraserRef = useRef(false);
+    const eraserStartTimeRef = useRef<number>(0);
 
     // Active gesture interaction state
     const currentStrokePointsRef = useRef<{ x: number; y: number }[]>([]);
@@ -586,29 +587,14 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
 
         if (hands.length > 0 && hands[0].landmarks) {
             const hand = hands[0];
-            const indexTip = hand.landmarks[8];
-            const thumbTip = hand.landmarks[4];
             const gesture = gestures.find((g) => g.hand === hand.handedness) || gestures[0];
 
-            let localIsPinching = false;
-            if (thumbTip && indexTip) {
-                const dx = thumbTip.x - indexTip.x;
-                const dy = thumbTip.y - indexTip.y;
-                const dz = (thumbTip.z || 0) - (indexTip.z || 0);
-                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                localIsPinching = dist < pinchSensitivity || gesture?.type === 'PINCH';
-            } else {
-                localIsPinching = gesture?.type === 'PINCH';
-            }
-
-            // POINT (índice extendido solo) -> Dibujar
+            // Usar estado verificado por la FSM de gestos
             isPointingRef.current = gesture?.type === 'POINT';
-            // PINCH (pulgar e índice juntos) -> Agarrar y Arrastrar
-            isPinchingRef.current = localIsPinching;
-            // PEACE (índice y medio extendidos/juntos) -> Borrar
+            isPinchingRef.current = gesture?.type === 'PINCH';
             isEraserRef.current = gesture?.type === 'PEACE';
         }
-    }, [hands, gestures, isGesturePaused, pinchSensitivity, virtualPointerPos]);
+    }, [hands, gestures, isGesturePaused, virtualPointerPos]);
 
     // ─── Two Hand Gestures & Swipe ─────────────────────────────────────────────
 
@@ -637,8 +623,6 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
     // ─── Main RAF Loop (Continuous Gesture Interaction & Dragging) ────────────
 
     useEffect(() => {
-        const LERP = 0.25;
-
         const loop = () => {
             const canvas = fabricCanvasRef.current;
             const target = virtualPointerPosRef.current ?? targetPosRef.current;
@@ -649,49 +633,53 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
             }
 
             if (target) {
-                if (!smoothedPosRef.current) {
-                    smoothedPosRef.current = { ...target };
-                } else {
-                    smoothedPosRef.current = {
-                        x: smoothedPosRef.current.x * (1 - LERP) + target.x * LERP,
-                        y: smoothedPosRef.current.y * (1 - LERP) + target.y * LERP,
-                    };
-                }
-                setPointerPos({ ...smoothedPosRef.current });
+                // Posición ya filtrada con 1€ Filter en useHandCursor
+                smoothedPosRef.current = target;
+                setPointerPos(target);
 
-                const pos = smoothedPosRef.current;
+                const pos = target;
                 const tool: EditorAction = currentToolRef.current;
-                const isPointing = isPointingRef.current || tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER';
                 const isPinching = isPinchingRef.current;
                 const isErasing = isEraserRef.current || tool === 'SELECT_ERASER';
+                const isPointing = (isPointingRef.current || tool === 'SELECT_BRUSH' || tool === 'SELECT_LASER') && !isPinching && !grabbedObjectRef.current;
 
                 // 1. ERASER GESTURE (PEACE = Dedo índice + medio)
                 if (isErasing) {
-                    const erasePoint = new fabric.Point(pos.x, pos.y);
-                    const objects = canvas.getObjects();
-                    let removed = false;
-                    for (let i = objects.length - 1; i >= 0; i--) {
-                        const obj = objects[i];
-                        if (obj.visible !== false && obj.containsPoint(erasePoint)) {
-                            pushSnapshot(`Borrar objeto: ${(obj as any).name}`);
-                            canvas.remove(obj);
-                            commitHead();
-                            removed = true;
-                            break;
+                    if (eraserStartTimeRef.current === 0) {
+                        eraserStartTimeRef.current = Date.now();
+                    }
+                    // Proteger contra borrados involuntarios (requiere sostenimiento de 120ms)
+                    const isManualEraserTool = tool === 'SELECT_ERASER';
+                    const hasHeldEnough = Date.now() - eraserStartTimeRef.current > 120;
+
+                    if (isManualEraserTool || hasHeldEnough) {
+                        const erasePoint = new fabric.Point(pos.x, pos.y);
+                        const objects = canvas.getObjects();
+                        let removed = false;
+                        for (let i = objects.length - 1; i >= 0; i--) {
+                            const obj = objects[i];
+                            if (obj.visible !== false && obj.containsPoint(erasePoint)) {
+                                pushSnapshot(`Borrar objeto: ${(obj as any).name}`);
+                                canvas.remove(obj);
+                                commitHead();
+                                removed = true;
+                                break;
+                            }
+                        }
+                        if (removed) {
+                            canvas.requestRenderAll();
+                            syncLayers();
                         }
                     }
-                    if (removed) {
-                        canvas.requestRenderAll();
-                        syncLayers();
-                    }
+                } else {
+                    eraserStartTimeRef.current = 0;
                 }
+
                 // 2. DRAWING GESTURE (POINT = Solo dedo índice extendido)
-                else if (isPointing && !isPinching) {
+                if (isPointing) {
                     if (!wasPointingRef.current) {
-                        // Iniciar trazo con el índice
                         currentStrokePointsRef.current = [{ x: pos.x, y: pos.y }];
                     } else {
-                        // Continuar trazo con el índice
                         currentStrokePointsRef.current.push({ x: pos.x, y: pos.y });
                         if (activePathPreviewRef.current) {
                             canvas.remove(activePathPreviewRef.current);
@@ -714,10 +702,10 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         canvas.requestRenderAll();
                     }
                 }
-                // 3. GRAB & DRAG GESTURE (PINCH = Pulgar + Índice tocando/abriendo/cerrando)
-                else if (isPinching) {
-                    if (!wasPinchingRef.current) {
-                        // Iniciar agarre sobre un objeto
+
+                // 3. GRAB & DRAG GESTURE (PINCH = Pulgar + Índice tocando)
+                if (isPinching) {
+                    if (!wasPinchingRef.current && !grabbedObjectRef.current) {
                         const pointer = new fabric.Point(pos.x, pos.y);
                         const objects = canvas.getObjects();
                         let foundObj: fabric.Object | null = null;
@@ -738,13 +726,19 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                             canvas.requestRenderAll();
                         }
                     } else if (grabbedObjectRef.current && grabOffsetRef.current) {
-                        // Arrastrar objeto agarrado
                         grabbedObjectRef.current.set({
                             left: pos.x + grabOffsetRef.current.x,
                             top: pos.y + grabOffsetRef.current.y,
                         });
                         canvas.requestRenderAll();
                     }
+                } else if (grabbedObjectRef.current && grabOffsetRef.current) {
+                    // Si ya estaba agarrado, permitir arrastrar aunque PINCH tenga un parpadeo momentáneo
+                    grabbedObjectRef.current.set({
+                        left: pos.x + grabOffsetRef.current.x,
+                        top: pos.y + grabOffsetRef.current.y,
+                    });
+                    canvas.requestRenderAll();
                 }
 
                 // Finalizar trazo de dibujo al soltar el índice
@@ -790,7 +784,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                     syncLayers();
                 }
 
-                // Finalizar agarre al soltar pinch
+                // Finalizar agarre al soltar pinch de forma explícita
                 if (wasPinchingRef.current && !isPinching) {
                     if (grabbedObjectRef.current) {
                         commitHead();
@@ -808,6 +802,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                 wasPinchingRef.current = false;
                 grabbedObjectRef.current = null;
                 grabOffsetRef.current = null;
+                eraserStartTimeRef.current = 0;
                 currentStrokePointsRef.current = [];
                 setPointerPos(null);
             }

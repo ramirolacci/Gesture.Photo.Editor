@@ -45,12 +45,23 @@ function App() {
         viewportSize: { width: window.innerWidth, height: window.innerHeight },
     });
 
+    const openPalmStartTimeRef = useRef<number | null>(null);
+
     useEffect(() => {
         const hasOpenPalm = gestures.some((g) => g.type === 'OPEN_PALM');
-        if (hasOpenPalm && !wasOpenPalmRef.current) {
-            setIsGesturePaused((prev) => !prev);
+        const now = Date.now();
+
+        if (hasOpenPalm) {
+            if (!openPalmStartTimeRef.current) {
+                openPalmStartTimeRef.current = now;
+            } else if (now - openPalmStartTimeRef.current > 1200 && !wasOpenPalmRef.current) {
+                setIsGesturePaused((prev) => !prev);
+                wasOpenPalmRef.current = true;
+            }
+        } else {
+            openPalmStartTimeRef.current = null;
+            wasOpenPalmRef.current = false;
         }
-        wasOpenPalmRef.current = hasOpenPalm;
     }, [gestures]);
 
     useEffect(() => {

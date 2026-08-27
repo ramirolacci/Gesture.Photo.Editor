@@ -1,21 +1,32 @@
 import { GestureType, Landmark } from '../types/hand';
-import { calculateDistance, calculateDistance2D, FingerLandmarks } from './distanceCalculator';
-
-const PINCH_THRESHOLD = 0.16;
-const PINCH_DEPTH_THRESHOLD = 0.12;
+import { calculateDistance, FingerLandmarks } from './distanceCalculator';
 
 /**
- * Detecta gesto de PINCH (pulgar + índice juntos para agarrar y arrastrar)
+ * Calcula la escala general de la mano basada en la distancia Muñeca -> Base del Dedo Medio
  */
-export function detectPinch(landmarks: Landmark[]): boolean {
+export function getHandScale(landmarks: Landmark[]): number {
+    const wrist = landmarks[FingerLandmarks.WRIST];
+    const middleMCP = landmarks[FingerLandmarks.MIDDLE_MCP];
+    if (!wrist || !middleMCP) return 1.0;
+    return Math.max(calculateDistance(wrist, middleMCP), 0.01);
+}
+
+/**
+ * Detecta gesto de PINCH (pulgar + índice juntos para agarrar y arrastrar) con invariancia a escala
+ */
+export function detectPinch(landmarks: Landmark[], isCurrentlyPinching: boolean = false): boolean {
     const thumbTip = landmarks[FingerLandmarks.THUMB_TIP];
     const indexTip = landmarks[FingerLandmarks.INDEX_TIP];
 
     if (!thumbTip || !indexTip) return false;
 
-    const distance2D = calculateDistance2D(thumbTip, indexTip);
-    const depthDifference = Math.abs(thumbTip.z - indexTip.z);
-    return distance2D < PINCH_THRESHOLD && depthDifference < PINCH_DEPTH_THRESHOLD;
+    const handScale = getHandScale(landmarks);
+    const distance3D = calculateDistance(thumbTip, indexTip);
+    const normalizedDistance = distance3D / handScale;
+
+    // Histeresis: Umbral más estricto para entrar (0.35), más holgado para salir (0.50) si ya está haciendo pinch
+    const threshold = isCurrentlyPinching ? 0.50 : 0.36;
+    return normalizedDistance < threshold;
 }
 
 /**
@@ -86,17 +97,18 @@ export function detectPeace(landmarks: Landmark[]): boolean {
 }
 
 /**
- * Verifica si un dedo está extendido
+ * Verifica si un dedo está extendido de forma robusta e invariante a la rotación 3D
  */
 function isFingerExtended(
     landmarks: Landmark[],
     finger: 'thumb' | 'index' | 'middle' | 'ring' | 'pinky'
 ): boolean {
+    const wrist = landmarks[FingerLandmarks.WRIST];
     const tipIndex = getFingerTipIndex(finger);
     const pipIndex = getFingerPipIndex(finger);
     const mcpIndex = getFingerMcpIndex(finger);
 
-    if (!tipIndex || !pipIndex || !mcpIndex) return false;
+    if (!wrist || !tipIndex || !pipIndex || !mcpIndex) return false;
 
     const tip = landmarks[tipIndex];
     const pip = landmarks[pipIndex];
@@ -104,15 +116,15 @@ function isFingerExtended(
 
     if (finger === 'thumb') {
         const distanceTipToMCP = calculateDistance(tip, mcp);
-        const distanceTipToPIP = calculateDistance(tip, pip);
-        return distanceTipToMCP > distanceTipToPIP * 1.1;
+        const distancePipToMCP = calculateDistance(pip, mcp);
+        return distanceTipToMCP > distancePipToMCP * 1.15;
     }
 
-    const distanceTipToMCP = calculateDistance(tip, mcp);
-    const distancePipToMCP = calculateDistance(pip, mcp);
+    // Para los 4 dedos principales: la punta debe estar sensiblemente más alejada de la muñeca que la articulación PIP
+    const distTipWrist = calculateDistance(tip, wrist);
+    const distPipWrist = calculateDistance(pip, wrist);
 
-    // Ajustado a 1.12 para máxima sensibilidad y reconocimiento instantáneo
-    return distanceTipToMCP > distancePipToMCP * 1.12;
+    return distTipWrist > distPipWrist * 1.06;
 }
 
 function getFingerTipIndex(finger: string): number | null {
@@ -153,21 +165,26 @@ function getFingerMcpIndex(finger: string): number | null {
  */
 export function recognizeGesture(
     landmarks: Landmark[],
-    _handedness: 'left' | 'right'
+    _handedness: 'left' | 'right',
+    isCurrentlyPinching: boolean = false
 ): { type: GestureType; confidence: number } {
-    const gestures = [
-        { name: 'PINCH' as GestureType, detect: () => detectPinch(landmarks) },
-        { name: 'PEACE' as GestureType, detect: () => detectPeace(landmarks) },
-        { name: 'POINT' as GestureType, detect: () => detectPoint(landmarks) },
-        { name: 'OPEN_PALM' as GestureType, detect: () => detectOpenPalm(landmarks) },
-        { name: 'FIST' as GestureType, detect: () => detectFist(landmarks) },
-        { name: 'THUMBS_UP' as GestureType, detect: () => detectThumbsUp(landmarks) },
-    ];
-
-    for (const gesture of gestures) {
-        if (gesture.detect()) {
-            return { type: gesture.name, confidence: 0.9 };
-        }
+    if (detectPinch(landmarks, isCurrentlyPinching)) {
+        return { type: 'PINCH', confidence: 0.95 };
+    }
+    if (detectOpenPalm(landmarks)) {
+        return { type: 'OPEN_PALM', confidence: 0.9 };
+    }
+    if (detectPoint(landmarks)) {
+        return { type: 'POINT', confidence: 0.9 };
+    }
+    if (detectPeace(landmarks)) {
+        return { type: 'PEACE', confidence: 0.9 };
+    }
+    if (detectFist(landmarks)) {
+        return { type: 'FIST', confidence: 0.9 };
+    }
+    if (detectThumbsUp(landmarks)) {
+        return { type: 'THUMBS_UP', confidence: 0.9 };
     }
 
     return { type: 'NONE', confidence: 0 };

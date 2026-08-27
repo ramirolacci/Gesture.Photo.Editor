@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HandLandmarks, RecognizedGesture } from '../types/hand';
+import { Point3DSmoother } from '../utils/landmarkSmoother';
 
 interface HandCursorOptions {
     hands: HandLandmarks[];
     gestures: RecognizedGesture[];
     isGesturePaused?: boolean;
     viewportSize?: { width: number; height: number };
-    smoothing?: number;
 }
 
 interface HandCursorResult {
@@ -22,7 +22,6 @@ export function useHandCursor({
     gestures,
     isGesturePaused = false,
     viewportSize,
-    smoothing = 0.22,
 }: HandCursorOptions): HandCursorResult {
     const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
     const [isVisible, setIsVisible] = useState(false);
@@ -30,9 +29,7 @@ export function useHandCursor({
     const [isErasing, setIsErasing] = useState(false);
     const [isMoving, setIsMoving] = useState(false);
 
-    const targetPositionRef = useRef<{ x: number; y: number } | null>(null);
-    const smoothedPositionRef = useRef<{ x: number; y: number } | null>(null);
-    const frameRef = useRef<number | null>(null);
+    const smootherRef = useRef<Point3DSmoother>(new Point3DSmoother(1.2, 0.03));
 
     const size = useMemo(() => ({
         width: viewportSize?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 1280),
@@ -40,42 +37,8 @@ export function useHandCursor({
     }), [viewportSize?.width, viewportSize?.height]);
 
     useEffect(() => {
-        const updateLoop = () => {
-            const target = targetPositionRef.current;
-            if (!target) {
-                setCursorPosition(null);
-                setIsVisible(false);
-                frameRef.current = requestAnimationFrame(updateLoop);
-                return;
-            }
-
-            if (!smoothedPositionRef.current) {
-                smoothedPositionRef.current = { ...target };
-            } else {
-                smoothedPositionRef.current = {
-                    x: smoothedPositionRef.current.x + (target.x - smoothedPositionRef.current.x) * smoothing,
-                    y: smoothedPositionRef.current.y + (target.y - smoothedPositionRef.current.y) * smoothing,
-                };
-            }
-
-            setCursorPosition({ ...smoothedPositionRef.current });
-            setIsVisible(true);
-            frameRef.current = requestAnimationFrame(updateLoop);
-        };
-
-        frameRef.current = requestAnimationFrame(updateLoop);
-
-        return () => {
-            if (frameRef.current) {
-                cancelAnimationFrame(frameRef.current);
-            }
-        };
-    }, [smoothing]);
-
-    useEffect(() => {
         if (isGesturePaused || hands.length === 0) {
-            targetPositionRef.current = null;
-            smoothedPositionRef.current = null;
+            smootherRef.current.reset();
             setCursorPosition(null);
             setIsVisible(false);
             setIsDrawing(false);
@@ -86,8 +49,7 @@ export function useHandCursor({
 
         const hand = hands[0];
         if (!hand?.landmarks?.length) {
-            targetPositionRef.current = null;
-            smoothedPositionRef.current = null;
+            smootherRef.current.reset();
             setCursorPosition(null);
             setIsVisible(false);
             setIsDrawing(false);
@@ -101,8 +63,7 @@ export function useHandCursor({
         const indexTip = hand.landmarks[8];
 
         if (!indexTip) {
-            targetPositionRef.current = null;
-            smoothedPositionRef.current = null;
+            smootherRef.current.reset();
             setCursorPosition(null);
             setIsVisible(false);
             setIsDrawing(false);
@@ -111,12 +72,15 @@ export function useHandCursor({
             return;
         }
 
-        const nextPosition = {
+        const rawPos = {
             x: (1 - indexTip.x) * size.width,
             y: indexTip.y * size.height,
         };
 
-        targetPositionRef.current = nextPosition;
+        const filteredPos = smootherRef.current.filter(rawPos);
+
+        setCursorPosition(filteredPos);
+        setIsVisible(true);
         // POINT (índice extendido) = Dibujar
         setIsDrawing(gestureType === 'POINT');
         // PEACE (índice + medio extendidos juntos) = Borrar

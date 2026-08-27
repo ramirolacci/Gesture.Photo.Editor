@@ -16,18 +16,50 @@ export function useGestureRecognition(options: UseGestureRecognitionOptions) {
     const lastGestureTime = useRef<Record<string, number>>({});
     const lastStablePerHand = useRef<Record<string, string>>({});
 
+    // Búfer de estabilización de gestos por mano (FSM)
+    const gestureHistoryRef = useRef<Record<string, { type: GestureType; count: number }>>({});
+    const confirmedGestureRef = useRef<Record<string, GestureType>>({});
+
     useEffect(() => {
         if (hands.length === 0) {
             setGestures([]);
+            gestureHistoryRef.current = {};
+            confirmedGestureRef.current = {};
             return;
         }
 
         const now = Date.now();
         const recognizedGestures: RecognizedGesture[] = hands.map((hand) => {
-            const { type, confidence } = recognizeGesture(hand.landmarks, hand.handedness);
+            const handKey = hand.handedness;
+            const currentConfirmed = confirmedGestureRef.current[handKey] || 'NONE';
+            const isCurrentlyPinching = currentConfirmed === 'PINCH';
+
+            const rawResult = recognizeGesture(hand.landmarks, hand.handedness, isCurrentlyPinching);
+            let rawType = rawResult.type;
+
+            // Historial de estabilidad de frames
+            const history = gestureHistoryRef.current[handKey] || { type: 'NONE', count: 0 };
+            if (history.type === rawType) {
+                history.count += 1;
+            } else {
+                history.type = rawType;
+                history.count = 1;
+            }
+            gestureHistoryRef.current[handKey] = history;
+
+            // Requerir mínimo de frames estables para confirmar cambio de estado
+            // Gestos destructivos o sensibles (PEACE, OPEN_PALM) requieren 3 frames (~60-90ms)
+            const requiredFrames = (rawType === 'PEACE' || rawType === 'OPEN_PALM') ? 3 : 2;
+
+            let confirmedType = currentConfirmed;
+            if (history.count >= requiredFrames) {
+                confirmedType = rawType;
+                confirmedGestureRef.current[handKey] = confirmedType;
+            }
+
             return {
-                type,
-                confidence,
+                type: confirmedType,
+                confidence: rawResult.confidence,
                 hand: hand.handedness,
                 timestamp: now,
             };
