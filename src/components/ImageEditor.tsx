@@ -36,8 +36,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const [toasts, setToasts] = useState<Toast[]>([]);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [pinchSensitivity, setPinchSensitivity] = useState(0.12);
 
     const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'info') => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -67,7 +65,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         isGesturePaused,
         onToggleGesturePause,
         showToast,
-        pinchSensitivity,
         virtualPointerPos: handCursorPosition,
     });
 
@@ -139,17 +136,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
             </div>
 
             <div className="pointer-events-none absolute inset-0 z-10">
-                {/* Top Right Controls */}
-                <div className="pointer-events-auto absolute right-4 top-4 flex gap-2">
-                    <button
-                        onClick={() => void clearCanvas()}
-                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
-                        title="Limpiar pantalla"
-                    >
-                        🧽 Limpiar
-                    </button>
-                </div>
-
                 {/* Top Left Gestures Guide */}
                 <div className="pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-2">
                     {!isGesturePaused && (
@@ -187,7 +173,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     <button
                         onClick={() => selectTool('SELECT_BRUSH')}
                         className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_BRUSH' ? 'bg-cyan-500 text-black shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                        title="Pincel Libre (Pinch para dibujar)"
+                        title="Pincel Libre (Dibujar)"
                     >
                         ✏️ Dibujar
                     </button>
@@ -211,14 +197,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     {/* Shapes */}
                     <button
                         onClick={() => selectTool('DRAW_CIRCLE')}
-                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_CIRCLE' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
+                        className={`rounded-full p-1.5 text-xs transition ${currentTool === 'DRAW_CIRCLE' ? 'bg-cyan-500 text-black font-bold' : 'text-white/80 hover:text-white hover:bg-white/10'}`}
                         title="Círculo"
                     >
                         ⭕
                     </button>
                     <button
                         onClick={() => selectTool('DRAW_RECT')}
-                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_RECT' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
+                        className={`rounded-full p-1.5 text-xs transition ${currentTool === 'DRAW_RECT' ? 'bg-cyan-500 text-black font-bold' : 'text-white/80 hover:text-white hover:bg-white/10'}`}
                         title="Rectángulo"
                     >
                         ⬜
@@ -251,6 +237,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         title="Grosor de trazo"
                     />
 
+                    <div className="h-5 w-[1px] bg-white/20 mx-1" />
+
                     <button
                         onClick={() => void undo()}
                         className="rounded-full bg-white/10 p-1.5 text-xs text-white hover:bg-white/20"
@@ -265,6 +253,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     >
                         ↪
                     </button>
+                    <button
+                        onClick={() => void clearCanvas()}
+                        className="rounded-full border border-white/20 bg-rose-600/80 px-2.5 py-1 text-xs font-semibold text-white shadow hover:bg-rose-500"
+                        title="Limpiar lienzo completo"
+                    >
+                        🧽 Limpiar
+                    </button>
                 </div>
 
                 {quickMenuVisible && <QuickMenu visible={quickMenuVisible} actions={quickActions} />}
@@ -277,41 +272,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     </div>
                 )}
             </div>
-
-            {isSettingsOpen && (
-                <div className="pointer-events-auto absolute right-4 top-16 z-30 w-[300px] rounded-2xl border border-white/20 bg-black/85 p-4 text-white shadow-2xl backdrop-blur">
-                    <div className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-cyan-300">
-                        <span>Ajustes de Presentación</span>
-                        <button onClick={() => setIsSettingsOpen(false)} className="text-white/70 hover:text-white">✕</button>
-                    </div>
-                    <div className="space-y-3 text-xs">
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                            <div className="mb-1.5 font-semibold text-white/90">Gestos de Cámara:</div>
-                            <ul className="list-disc pl-4 space-y-1 text-white/70 text-[11px]">
-                                <li><b>Índice:</b> Apuntar puntero en pantalla.</li>
-                                <li><b>Pinch (Índice + Pulgar):</b> Si estás sobre un dibujo lo <b>agarrás y arrastrás</b>; si estás en espacio libre <b>dibujás</b>.</li>
-                                <li><b>Dos Dedos (Peace):</b> Borrador rápido.</li>
-                            </ul>
-                        </div>
-
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                            <div className="mb-1 flex justify-between">
-                                <span>Sensibilidad Pinch:</span>
-                                <span>{pinchSensitivity.toFixed(2)}</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0.05"
-                                max="0.20"
-                                step="0.01"
-                                value={pinchSensitivity}
-                                onChange={(e) => setPinchSensitivity(Number(e.target.value))}
-                                className="w-full accent-cyan-400 cursor-pointer"
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
                 {toasts.map((t) => (

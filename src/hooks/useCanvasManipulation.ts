@@ -675,8 +675,71 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                     eraserStartTimeRef.current = 0;
                 }
 
-                // 2. DRAWING GESTURE (POINT = Solo dedo índice extendido)
-                if (isPointing) {
+                const isDrawingShapeTool = tool === 'DRAW_RECT' || tool === 'DRAW_CIRCLE';
+                const isShapeGestureActive = (isPointingRef.current || isPinching) && isDrawingShapeTool && !grabbedObjectRef.current;
+
+                // 2. DRAWING GESTURE (POINT / BRUSH / SHAPES)
+                if (isDrawingShapeTool) {
+                    if (isShapeGestureActive) {
+                        if (!activeDrawingShapeRef.current) {
+                            pushSnapshot(`Nueva forma: ${tool}`);
+                            const startPt = { x: pos.x, y: pos.y };
+                            const nameSuffix = canvas.getObjects().length + 1;
+                            const baseOptions = {
+                                left: startPt.x,
+                                top: startPt.y,
+                                fill: 'transparent',
+                                stroke: brushColorRef.current,
+                                strokeWidth: brushSizeRef.current,
+                                selectable: true,
+                                hasControls: true,
+                            };
+
+                            let shape: fabric.Object;
+                            if (tool === 'DRAW_RECT') {
+                                shape = new fabric.Rect({ ...baseOptions, width: 0, height: 0 });
+                            } else {
+                                shape = new fabric.Ellipse({ ...baseOptions, rx: 0, ry: 0 } as any);
+                            }
+
+                            const shapeAny = shape as any;
+                            shapeAny.id = 'shape_' + Date.now();
+                            shapeAny.layerType = 'shape';
+                            shapeAny.name = `${tool === 'DRAW_RECT' ? 'Rectángulo' : 'Círculo'} ${nameSuffix}`;
+
+                            canvas.add(shape);
+                            activeDrawingShapeRef.current = { shape, startPt };
+                            canvas.setActiveObject(shape);
+                            canvas.requestRenderAll();
+                        } else {
+                            const { shape, startPt } = activeDrawingShapeRef.current;
+                            const dx = pos.x - startPt.x;
+                            const dy = pos.y - startPt.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+
+                            if (tool === 'DRAW_RECT') {
+                                shape.set({
+                                    width: Math.abs(dx),
+                                    height: Math.abs(dy),
+                                    left: dx < 0 ? pos.x : startPt.x,
+                                    top: dy < 0 ? pos.y : startPt.y,
+                                });
+                            } else if (tool === 'DRAW_CIRCLE') {
+                                (shape as fabric.Ellipse).set({
+                                    rx: dist,
+                                    ry: dist,
+                                    left: startPt.x - dist,
+                                    top: startPt.y - dist,
+                                });
+                            }
+                            canvas.requestRenderAll();
+                        }
+                    } else if (activeDrawingShapeRef.current) {
+                        activeDrawingShapeRef.current = null;
+                        commitHead();
+                        syncLayers();
+                    }
+                } else if (isPointing) {
                     if (!wasPointingRef.current) {
                         currentStrokePointsRef.current = [{ x: pos.x, y: pos.y }];
                     } else {
@@ -686,7 +749,7 @@ export function useCanvasManipulation(options: UseCanvasManipulationOptions) {
                         }
                         const pathData = pointsToSvgPath(currentStrokePointsRef.current);
                         const strokeWidth = isHighlightModeRef.current ? Math.max(brushSizeRef.current + 8, 12) : brushSizeRef.current;
-                        const strokeColor = tool === 'SELECT_LASER' ? '#FF0055' : isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
+                        const strokeColor = isHighlightModeRef.current ? toRgba(brushColorRef.current, 0.4) : brushColorRef.current;
 
                         const preview = new fabric.Path(pathData, {
                             fill: '',
