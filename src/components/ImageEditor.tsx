@@ -58,7 +58,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
         undo,
         redo,
         historyEntries,
-        exportAs,
         clearCanvas,
     } = useCanvasManipulation({
         canvasRef,
@@ -149,13 +148,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     >
                         🧽 Limpiar
                     </button>
-                    <button
-                        onClick={() => setIsSettingsOpen((prev) => !prev)}
-                        className="rounded-full border border-white/20 bg-black/60 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-white/10"
-                        title="Ajustes"
-                    >
-                        ⚙
-                    </button>
                 </div>
 
                 {/* Top Left Gestures Guide */}
@@ -190,7 +182,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                     )}
                 </div>
 
-                {/* Main Presenter Toolbar (sin luz celes de fondo) */}
+                {/* Main Presenter Toolbar */}
                 <div className="pointer-events-auto absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/20 bg-black/90 px-4 py-2.5 shadow-2xl backdrop-blur">
                     <button
                         onClick={() => selectTool('SELECT_BRUSH')}
@@ -198,13 +190,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         title="Pincel Libre (Pinch para dibujar)"
                     >
                         ✏️ Dibujar
-                    </button>
-                    <button
-                        onClick={() => selectTool('SELECT_LASER')}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currentTool === 'SELECT_LASER' ? 'bg-rose-500 text-white shadow-md' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                        title="Puntero Láser (se desvanece solo)"
-                    >
-                        🔴 Láser
                     </button>
                     <button
                         onClick={() => selectTool('SELECT_MOVE')}
@@ -237,13 +222,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         title="Rectángulo"
                     >
                         ⬜
-                    </button>
-                    <button
-                        onClick={() => selectTool('DRAW_LINE')}
-                        className={`rounded-full p-1.5 text-xs ${currentTool === 'DRAW_LINE' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/80 hover:text-white'}`}
-                        title="Línea / Subrayado"
-                    >
-                        📏
                     </button>
 
                     <div className="h-5 w-[1px] bg-white/20 mx-1" />
@@ -286,13 +264,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({
                         title="Rehacer (Ctrl+Y)"
                     >
                         ↪
-                    </button>
-                    <button
-                        onClick={() => void exportAs({ format: 'png', scale: 2 })}
-                        className="rounded-full bg-white/10 p-1.5 text-xs text-white hover:bg-white/20"
-                        title="Guardar Captura PNG"
-                    >
-                        ⬇️
                     </button>
                 </div>
 
